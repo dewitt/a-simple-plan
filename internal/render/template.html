@@ -1,0 +1,130 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Blog Post</title>
+    <style>
+        /* Mid-90s Workstation Aesthetic */
+        :root {
+            /* Default: xterm / cmdtool (White bg, Black text) */
+            --bg-color: #ffffff;
+            --text-color: #000000;
+            --link-color: #0000ee;
+            --meta-color: #555555;
+            
+            /* Syntax Highlighting (High contrast, standard editor colors) */
+            --code-keyword: #0000aa;
+            --code-string: #008800;
+            --code-comment: #666666;
+            --code-type: #006666;
+            --code-literal: #aa0000;
+        }
+
+        @media (prefers-color-scheme: dark) {
+            :root {
+                /* Dark Mode: console / xterm -rv (Black bg, White text) */
+                --bg-color: #000000;
+                --text-color: #e5e5e5;
+                --link-color: #5c5cff;
+                --meta-color: #aaaaaa;
+
+                /* Syntax Highlighting (Dark) */
+                --code-keyword: #cd00cd;
+                --code-string: #00cd00;
+                --code-comment: #666666;
+                --code-type: #00cdcd;
+                --code-literal: #cdcd00;
+            }
+        }
+
+        body {
+            font-family: "Lucida Sans Typewriter", "Lucida Console", "Monaco", "Bitstream Vera Sans Mono", monospace;
+            font-size: 14px;
+            line-height: 1.3;
+            width: min(80ch, 100% - 2rem); /* Responsive width: max 80ch, but never wider than viewport minus padding */
+            margin: 2rem auto;
+            padding: 0 1rem;
+            color: var(--text-color);
+            background-color: var(--bg-color);
+        }
+
+        /* Flatten heading hierarchy to mimic plain text */
+        h1, h2, h3, h4, h5, h6 { 
+            font-size: 1rem;
+            font-weight: bold;
+            text-transform: uppercase;
+            margin: 1.5rem 0 0.5rem 0;
+            border: none;
+            padding: 0;
+            color: var(--text-color);
+        }
+
+        /* Links: simple underline, no hover effects beyond cursor */
+        a { 
+            color: var(--link-color); 
+            text-decoration: underline;
+        }
+        a:hover {
+            text-decoration: none;
+            background-color: transparent;
+            color: var(--link-color);
+        }
+
+        /* Code blocks: Indented, no border, simple background */
+        pre { 
+            margin: 1rem 0;
+            padding: 0 0 0 2ch; /* Indent like a tab */
+            overflow-x: auto; 
+            background-color: transparent;
+            border: none;
+        }
+        code { 
+            font-family: inherit; 
+            color: inherit;
+        }
+
+        /* Quotes: Indented */
+        blockquote { 
+            margin: 1rem 0; 
+            padding-left: 2ch; 
+            border-left: none;
+            color: var(--text-color);
+        }
+
+        /* Lists */
+        ul, ol { margin: 1rem 0; padding-left: 2ch; }
+
+        /* Images: Simple, no border */
+        img { 
+            max-width: 100%; 
+            height: auto; 
+            border: none;
+        }
+
+        /* Finger Header Styling */
+        .finger-header {
+            white-space: pre;
+            margin-bottom: 2rem;
+            padding-bottom: 1rem;
+            border-bottom: 1px dashed var(--meta-color);
+            color: var(--text-color);
+        }
+        
+        /* Syntax Highlighting Classes */
+        .chroma .k, .chroma .kd, .chroma .kn, .chroma .kp, .chroma .kr, .chroma .kt { color: var(--code-keyword); font-weight: bold; }
+        .chroma .s, .chroma .sa, .chroma .sb, .chroma .sc, .chroma .dl, .chroma .sd, .chroma .s2, .chroma .se, .chroma .sh, .chroma .si, .chroma .sx, .chroma .sr, .chroma .s1, .chroma .ss { color: var(--code-string); }
+        .chroma .c, .chroma .ch, .chroma .cm, .chroma .c1, .chroma .cs, .chroma .cp, .chroma .cpf { color: var(--code-comment); font-style: italic; }
+        .chroma .kt, .chroma .nc, .chroma .no, .chroma .nd { color: var(--code-type); }
+        .chroma .m, .chroma .mb, .chroma .mf, .chroma .mh, .chroma .mi, .chroma .il, .chroma .mo { color: var(--code-literal); }
+
+    </style>
+</head>
+<body>
+<div class="finger-header">Login: dewitt                            Name: DeWitt Clinton
+Directory: /home/dewitt                  Shell: /bin/zsh
+On since {{onSince}} on ttys000, idle {{idleStr}}
+Plan:</div>
+{{content}}
+</body>
+</html>

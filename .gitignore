@@ -1,0 +1,13 @@
+# Binaries
+/plan
+/server
+
+# OS Specific
+.DS_Store
+
+# Editor
+.vscode/
+.idea/
+
+# Backups
+*.bak
