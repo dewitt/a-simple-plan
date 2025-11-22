@@ -1,0 +1,8 @@
+.git
+.gitignore
+Dockerfile
+README.md
+TODO.md
+DESIGN.md
+PROMPT.md
+cmd/plan
