@@ -28,6 +28,7 @@ func main() {
 		fmt.Fprintf(os.Stderr, "  save     - Commit changes locally\n")
 		fmt.Fprintf(os.Stderr, "  publish  - Commit and push to origin\n")
 		fmt.Fprintf(os.Stderr, "  revert   - Discard local changes\n")
+		fmt.Fprintf(os.Stderr, "  rollback - Revert to previous version and publish\n")
 		fmt.Fprintf(os.Stderr, "  edit     - Open plan file in default editor\n")
 		fmt.Fprintf(os.Stderr, "\nOptions:\n")
 		flag.PrintDefaults()
@@ -89,6 +90,12 @@ func main() {
 			os.Exit(1)
 		}
 		revert(planFile)
+	case "rollback":
+		// Parse flags from args[2:]
+		if err := flag.CommandLine.Parse(os.Args[2:]); err != nil {
+			os.Exit(1)
+		}
+		rollback(planFile)
 	case "edit":
 		// Parse flags from args[2:]
 		if err := flag.CommandLine.Parse(os.Args[2:]); err != nil {
@@ -212,6 +219,30 @@ func revert(file string) {
 		log.Fatalf("Failed to revert: %v", err)
 	}
 	fmt.Println("Local changes discarded.")
+}
+
+func rollback(file string) {
+	fmt.Printf("Rolling back %s to previous version...\n", file)
+
+	// 1. Checkout previous version (HEAD~1)
+	// Note: We use '--' to disambiguate file from branch/ref
+	if err := runCmd("git", "checkout", "HEAD~1", "--", file); err != nil {
+		log.Fatalf("Failed to checkout previous version: %v", err)
+	}
+
+	// 2. Commit the rollback
+	fmt.Println("Committing rollback...")
+	if err := runCmd("git", "commit", "-m", fmt.Sprintf("Rollback %s to previous version", file)); err != nil {
+		log.Fatalf("Failed to commit rollback: %v", err)
+	}
+
+	// 3. Push to trigger deployment
+	fmt.Println("Pushing to origin...")
+	if err := runCmd("git", "push"); err != nil {
+		log.Fatalf("Failed to push: %v", err)
+	}
+
+	fmt.Println("Successfully rolled back and triggered deployment.")
 }
 
 func edit(file string) {
