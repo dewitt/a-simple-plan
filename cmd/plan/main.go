@@ -11,6 +11,7 @@ import (
 	"time"
 
 	"github.com/dewitt/dewitt-blog/internal/handler"
+	"github.com/dewitt/dewitt-blog/internal/render"
 )
 
 func main() {
@@ -24,8 +25,9 @@ func main() {
 		fmt.Fprintf(os.Stderr, "Usage: plan [options] <command>\n")
 		fmt.Fprintf(os.Stderr, "\nCommands:\n")
 		fmt.Fprintf(os.Stderr, "  preview  - Render locally and open in browser\n")
+		fmt.Fprintf(os.Stderr, "  build    - Generate static HTML in 'public' directory\n")
 		fmt.Fprintf(os.Stderr, "  save     - Commit changes locally\n")
-		fmt.Fprintf(os.Stderr, "  publish  - Commit, push, and deploy to Cloud Run\n")
+		fmt.Fprintf(os.Stderr, "  publish  - Commit and push to origin\n")
 		fmt.Fprintf(os.Stderr, "  revert   - Discard local changes\n")
 		fmt.Fprintf(os.Stderr, "  edit     - Open plan file in default editor\n")
 		fmt.Fprintf(os.Stderr, "\nOptions:\n")
@@ -64,6 +66,12 @@ func main() {
 			os.Exit(1)
 		}
 		preview(planFile)
+	case "build":
+		// Parse flags from args[2:]
+		if err := flag.CommandLine.Parse(os.Args[2:]); err != nil {
+			os.Exit(1)
+		}
+		build(planFile)
 	case "save":
 		// Parse flags from args[2:]
 		if err := flag.CommandLine.Parse(os.Args[2:]); err != nil {
@@ -127,6 +135,45 @@ func preview(file string) {
 	}
 }
 
+func build(file string) {
+	fmt.Printf("Building %s to public/index.html...\n", file)
+
+	// 1. Read file
+	content, err := os.ReadFile(file)
+	if err != nil {
+		log.Fatalf("Failed to read file: %v", err)
+	}
+
+	// 2. Get stats
+	info, err := os.Stat(file)
+	if err != nil {
+		log.Fatalf("Failed to stat file: %v", err)
+	}
+	modTime := info.ModTime()
+
+	// 3. Render
+	r := render.New()
+	body, err := r.RenderBody(content)
+	if err != nil {
+		log.Fatalf("Failed to render body: %v", err)
+	}
+
+	html, err := r.Compose(body, modTime, modTime)
+	if err != nil {
+		log.Fatalf("Failed to compose HTML: %v", err)
+	}
+
+	// 4. Write
+	if err := os.MkdirAll("public", 0755); err != nil {
+		log.Fatalf("Failed to create public dir: %v", err)
+	}
+	if err := os.WriteFile("public/index.html", html, 0644); err != nil {
+		log.Fatalf("Failed to write HTML: %v", err)
+	}
+
+	fmt.Println("Build complete.")
+}
+
 func save(file string) {
 	fmt.Printf("Saving %s...\n", file)
 
@@ -152,20 +199,7 @@ func publish(file string) {
 		log.Fatalf("Failed to push: %v", err)
 	}
 
-	// 3. Deploy to Cloud Run
-	fmt.Println("Deploying to Cloud Run...")
-	// Using the specific command that worked previously
-	err := runCmd("gcloud", "run", "deploy", "a-simple-plan", 
-		"--source", ".", 
-		"--project", "dev-unto-net", 
-		"--region", "us-central1", 
-		"--allow-unauthenticated",
-	)
-	if err != nil {
-		log.Fatalf("Failed to deploy to Cloud Run: %v", err)
-	}
-
-	fmt.Println("Successfully published and deployed!")
+	fmt.Println("Successfully pushed to origin. Cloudflare Pages deployment should trigger shortly.")
 }
 
 func revert(file string) {

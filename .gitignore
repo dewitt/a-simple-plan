@@ -1,6 +1,7 @@
 # Binaries
 /plan
 /server
+/public
 
 # OS Specific
 .DS_Store
