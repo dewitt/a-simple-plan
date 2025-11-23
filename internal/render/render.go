@@ -38,7 +38,12 @@ func Render(md []byte, created, updated time.Time) ([]byte, error) {
 	idleStr := fmt.Sprintf("%d:%02d", int(idle.Hours()), int(idle.Minutes())%60)
 
 	// Format created time: Sat Nov 22 06:33 (PST)
-	onSince := created.Format("Mon Jan _2 15:04 (MST)")
+	// Use Seattle time (America/Los_Angeles)
+	loc, err := time.LoadLocation("America/Los_Angeles")
+	if err != nil {
+		loc = time.UTC
+	}
+	onSince := created.In(loc).Format("Mon Jan _2 15:04 (MST)")
 
 	// Inject dynamic values into the template.
 	// First, format the header variables.
