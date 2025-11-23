@@ -1,4 +1,4 @@
-### Why just one post??
+### Why just one post?
 
 Because focus is important.
 
