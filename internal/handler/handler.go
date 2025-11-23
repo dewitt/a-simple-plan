@@ -30,7 +30,7 @@ func New(postFile string) http.HandlerFunc {
 	var createTime, modTime time.Time
 	if err == nil {
 		modTime = info.ModTime()
-		createTime = modTime 
+		createTime = modTime
 	} else {
 		now := time.Now()
 		modTime = now

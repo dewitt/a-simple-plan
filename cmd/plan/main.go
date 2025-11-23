@@ -10,7 +10,6 @@ import (
 	"runtime"
 	"time"
 
-	"github.com/dewitt/dewitt-blog/internal/handler"
 	"github.com/dewitt/dewitt-blog/internal/render"
 )
 
@@ -50,15 +49,15 @@ func main() {
 
 	// Simple subcommand parsing
 	cmd := os.Args[1]
-	
+
 	// Create a FlagSet for each command if we want command-specific flags,
 	// or just use global flags if they apply to all.
 	// Since the user asked for a flag to override the post being previewed OR published,
 	// it applies to both.
-	
+
 	// Let's handle the case where the user might type `plan preview -f foo.md`
 	// We can shift os.Args if the first arg is a known command.
-	
+
 	switch cmd {
 	case "preview":
 		// Parse flags from args[2:]
@@ -102,9 +101,9 @@ func main() {
 		// Check if the first arg is actually a flag (starts with -)
 		if cmd[0] == '-' {
 			// It's a flag, presumably before the command? Or no command provided?
-			// If they ran `plan -f foo.md preview`, flag.Parse() would handle it 
+			// If they ran `plan -f foo.md preview`, flag.Parse() would handle it
 			// if we called it globally. But we want to support `plan preview`.
-			
+
 			// Let's stick to the robust subcommand pattern.
 			fmt.Printf("Unknown command or invalid usage: %s\n", cmd)
 			flag.Usage()
@@ -118,16 +117,20 @@ func main() {
 
 func preview(file string) {
 	port := "8081" // Use a different default port for preview to avoid conflict
-	h := handler.New(file)
-	http.HandleFunc("/", h)
 
-	fmt.Printf("Starting preview server for %s at http://localhost:%s\n", file, port)
+	// Ensure the static site is built before previewing
+	build(file)
+
+	fs := http.FileServer(http.Dir("public"))
+	http.Handle("/", fs)
+
+	fmt.Printf("Starting preview server for static content at http://localhost:%s/index.html\n", port)
 
 	// Launch browser in a goroutine
 	go func() {
 		// Give the server a moment to start
 		time.Sleep(500 * time.Millisecond)
-		openBrowser("http://localhost:" + port)
+		openBrowser("http://localhost:" + port + "/index.html")
 	}()
 
 	if err := http.ListenAndServe(":"+port, nil); err != nil {
