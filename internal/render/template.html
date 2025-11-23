@@ -123,8 +123,35 @@
 <body>
 <div class="finger-header">Login: dewitt                            Name: DeWitt Clinton
 Directory: /home/dewitt                  Shell: /bin/zsh
-On since {{onSince}} on ttys000, idle {{idleStr}}
+On since {{onSince}} on ttys000, idle <span id="idle-time" data-timestamp="{{modTimeUnix}}"></span>
 Plan:</div>
 {{content}}
+<script>
+    function updateIdleTime() {
+        const idleSpan = document.getElementById('idle-time');
+        if (!idleSpan) return;
+
+        const timestamp = parseInt(idleSpan.dataset.timestamp) * 1000; // Convert to milliseconds
+        const now = Date.now();
+        const idleMs = now - timestamp;
+
+        const hours = Math.floor(idleMs / (1000 * 60 * 60));
+        const minutes = Math.floor((idleMs % (1000 * 60 * 60)) / (1000 * 60));
+
+        let idleStr = "";
+        if (hours > 0) {
+            idleStr += hours + "h ";
+        }
+        idleStr += minutes + "m";
+        if (idleStr === "") {
+            idleStr = "0m";
+        }
+
+        idleSpan.textContent = idleStr;
+    }
+
+    updateIdleTime(); // Initial update
+    setInterval(updateIdleTime, 60 * 1000); // Update every minute
+</script>
 </body>
 </html>

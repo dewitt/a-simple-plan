@@ -57,17 +57,14 @@ func (r *Renderer) RenderBody(md []byte) ([]byte, error) {
 
 // Compose combines the pre-rendered HTML body with dynamic header information.
 func (r *Renderer) Compose(bodyHTML []byte, created, updated time.Time) ([]byte, error) {
-	// Calculate idle time
-	idle := time.Since(updated)
-	idleStr := fmt.Sprintf("%d:%02d", int(idle.Hours()), int(idle.Minutes())%60)
-
 	// Format created time
 	onSince := created.In(r.loc).Format("Mon Jan _2 15:04 (MST)")
+	modTimeUnix := fmt.Sprintf("%d", updated.Unix())
 
 	// Inject dynamic values into the template.
 	outputStr := templateHTML
 	outputStr = strings.Replace(outputStr, "{{onSince}}", onSince, 1)
-	outputStr = strings.Replace(outputStr, "{{idleStr}}", idleStr, 1)
+	outputStr = strings.Replace(outputStr, "{{modTimeUnix}}", modTimeUnix, 1)
 
 	// Inject Content
 	parts := strings.Split(outputStr, "{{content}}")
