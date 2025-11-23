@@ -24,7 +24,10 @@ func main() {
 		fmt.Fprintf(os.Stderr, "Usage: plan [options] <command>\n")
 		fmt.Fprintf(os.Stderr, "\nCommands:\n")
 		fmt.Fprintf(os.Stderr, "  preview  - Render locally and open in browser\n")
-		fmt.Fprintf(os.Stderr, "  publish  - Commit and push changes\n")
+		fmt.Fprintf(os.Stderr, "  save     - Commit changes locally\n")
+		fmt.Fprintf(os.Stderr, "  publish  - Commit, push, and deploy to Cloud Run\n")
+		fmt.Fprintf(os.Stderr, "  revert   - Discard local changes\n")
+		fmt.Fprintf(os.Stderr, "  edit     - Open plan file in default editor\n")
 		fmt.Fprintf(os.Stderr, "\nOptions:\n")
 		flag.PrintDefaults()
 	}
@@ -61,12 +64,30 @@ func main() {
 			os.Exit(1)
 		}
 		preview(planFile)
+	case "save":
+		// Parse flags from args[2:]
+		if err := flag.CommandLine.Parse(os.Args[2:]); err != nil {
+			os.Exit(1)
+		}
+		save(planFile)
 	case "publish":
 		// Parse flags from args[2:]
 		if err := flag.CommandLine.Parse(os.Args[2:]); err != nil {
 			os.Exit(1)
 		}
 		publish(planFile)
+	case "revert":
+		// Parse flags from args[2:]
+		if err := flag.CommandLine.Parse(os.Args[2:]); err != nil {
+			os.Exit(1)
+		}
+		revert(planFile)
+	case "edit":
+		// Parse flags from args[2:]
+		if err := flag.CommandLine.Parse(os.Args[2:]); err != nil {
+			os.Exit(1)
+		}
+		edit(planFile)
 	case "-h", "--help":
 		flag.Usage()
 	default:
@@ -106,8 +127,8 @@ func preview(file string) {
 	}
 }
 
-func publish(file string) {
-	fmt.Printf("Publishing %s...\n", file)
+func save(file string) {
+	fmt.Printf("Saving %s...\n", file)
 
 	if err := runCmd("git", "add", file); err != nil {
 		log.Fatalf("Failed to add file: %v", err)
@@ -115,23 +136,84 @@ func publish(file string) {
 
 	// Commit. If no changes, this might fail, which is okay-ish, but let's handle it.
 	if err := runCmd("git", "commit", "-m", "Update plan"); err != nil {
-		fmt.Println("Nothing to commit or commit failed.")
+		fmt.Println("Nothing to commit or commit failed (maybe no changes?).")
 	} else {
 		fmt.Println("Changes committed.")
 	}
+}
 
+func publish(file string) {
+	// 1. Save (Commit)
+	save(file)
+
+	// 2. Push to git
+	fmt.Println("Pushing to origin...")
 	if err := runCmd("git", "push"); err != nil {
 		log.Fatalf("Failed to push: %v", err)
 	}
 
-	fmt.Println("Successfully published!")
+	// 3. Deploy to Cloud Run
+	fmt.Println("Deploying to Cloud Run...")
+	// Using the specific command that worked previously
+	err := runCmd("gcloud", "run", "deploy", "a-simple-plan", 
+		"--source", ".", 
+		"--project", "dev-unto-net", 
+		"--region", "us-central1", 
+		"--allow-unauthenticated",
+	)
+	if err != nil {
+		log.Fatalf("Failed to deploy to Cloud Run: %v", err)
+	}
+
+	fmt.Println("Successfully published and deployed!")
 }
 
-func runCmd(name string, args ...string) error {
-	cmd := exec.Command(name, args...)
+func revert(file string) {
+	fmt.Printf("Reverting %s...\n", file)
+	// Use git checkout to discard changes to the file
+	if err := runCmd("git", "checkout", file); err != nil {
+		log.Fatalf("Failed to revert: %v", err)
+	}
+	fmt.Println("Local changes discarded.")
+}
+
+func edit(file string) {
+	editor := os.Getenv("EDITOR")
+	if editor == "" {
+		editor = os.Getenv("VISUAL")
+	}
+
+	if editor == "" {
+		switch runtime.GOOS {
+		case "windows":
+			editor = "notepad"
+		case "darwin":
+			editor = "open -t" // 'open -t' opens with default text editor on macOS
+		default: // Linux and others
+			editor = "vi"
+		}
+	}
+
+	fmt.Printf("Opening %s with %s...\n", file, editor)
+
+	var cmd *exec.Cmd
+	if runtime.GOOS == "darwin" && editor == "open -t" {
+		cmd = exec.Command("open", "-t", file)
+	} else if runtime.GOOS != "windows" {
+		// Use sh -c to handle complex EDITOR strings (e.g., "emacsclient -t -a \"\"")
+		// We pass the editor command string as a script, and the file as $1
+		cmd = exec.Command("sh", "-c", editor+" \"$1\"", "editor_wrapper", file)
+	} else {
+		cmd = exec.Command(editor, file)
+	}
+
+	cmd.Stdin = os.Stdin
 	cmd.Stdout = os.Stdout
 	cmd.Stderr = os.Stderr
-	return cmd.Run()
+
+	if err := cmd.Run(); err != nil {
+		log.Fatalf("Failed to open editor: %v", err)
+	}
 }
 
 func openBrowser(url string) {
@@ -149,4 +231,11 @@ func openBrowser(url string) {
 	if err != nil {
 		log.Printf("Failed to open browser: %v", err)
 	}
+}
+
+func runCmd(name string, args ...string) error {
+	cmd := exec.Command(name, args...)
+	cmd.Stdout = os.Stdout
+	cmd.Stderr = os.Stderr
+	return cmd.Run()
 }
