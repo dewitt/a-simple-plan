@@ -351,28 +351,6 @@ func preview(ctx *PlanContext) {
 
 	mux := http.NewServeMux()
 	
-	// SSE Endpoint
-	mux.HandleFunc("/events", func(w http.ResponseWriter, r *http.Request) {
-		w.Header().Set("Content-Type", "text/event-stream")
-		w.Header().Set("Cache-Control", "no-cache")
-		w.Header().Set("Connection", "keep-alive")
-		w.Header().Set("Access-Control-Allow-Origin", "*")
-
-		flusher, ok := w.(http.Flusher)
-		if !ok {
-			http.Error(w, "Streaming unsupported!", http.StatusInternalServerError)
-			return
-		}
-
-		// Keep connection open
-		fmt.Fprintf(w, "retry: 1000\n\n") 
-		flusher.Flush()
-
-		// Listen for global reload
-		// In a real server we'd register this client to a hub.
-		// For a local dev tool, we can just loop or wait on a broadcast condition.
-	})
-
 	// Re-implementing the handler logic properly
 	
 	broker := make(chan chan struct{})
