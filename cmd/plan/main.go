@@ -13,16 +13,16 @@ import (
 	"strings"
 	"time"
 
-	"github.com/dewitt/dewitt-blog/internal/config"
-	"github.com/dewitt/dewitt-blog/internal/render"
+	"github.com/dewitt/a-simple-plan/internal/config"
+	"github.com/dewitt/a-simple-plan/internal/render"
 )
 
 type PlanContext struct {
-	PlanDir      string
-	PlanFile     string // Relative to PlanDir
-	OutputDir    string
-	Config       config.Config
-	Template     string // Custom template content
+	PlanDir   string
+	PlanFile  string // Relative to PlanDir
+	OutputDir string
+	Config    config.Config
+	Template  string // Custom template content
 }
 
 func main() {
@@ -451,4 +451,3 @@ func openBrowser(url string) {
 		log.Printf("Failed to open browser: %v", err)
 	}
 }
-

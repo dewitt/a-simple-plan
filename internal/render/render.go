@@ -8,7 +8,7 @@ import (
 	"time"
 
 	chromahtml "github.com/alecthomas/chroma/v2/formatters/html"
-	"github.com/dewitt/dewitt-blog/internal/config"
+	"github.com/dewitt/a-simple-plan/internal/config"
 	"github.com/yuin/goldmark"
 	highlighting "github.com/yuin/goldmark-highlighting/v2"
 )

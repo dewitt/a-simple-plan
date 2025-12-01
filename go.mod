@@ -1,4 +1,4 @@
-module github.com/dewitt/dewitt-blog
+module github.com/dewitt/a-simple-plan
 
 go 1.25.1
 

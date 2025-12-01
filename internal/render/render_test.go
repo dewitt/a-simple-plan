@@ -10,9 +10,16 @@ import (
 func TestRender(t *testing.T) {
 	input := []byte("# Hello World\nThis is a test.")
 	now := time.Now()
-	output, err := Render(input, now, now)
+
+	r := New(nil, "") // Use default config and template for testing
+	body, err := r.RenderBody(input)
 	if err != nil {
-		t.Fatalf("Render failed: %v", err)
+		t.Fatalf("RenderBody failed: %v", err)
+	}
+
+	output, err := r.Compose(body, now, now)
+	if err != nil {
+		t.Fatalf("Compose failed: %v", err)
 	}
 
 	if !bytes.Contains(output, []byte("<h1>Hello World</h1>")) {

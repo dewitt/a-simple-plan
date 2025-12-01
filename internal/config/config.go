@@ -46,7 +46,7 @@ func Load(path string) (Config, error) {
 		return cfg, fmt.Errorf("reading settings file: %w", err)
 	}
 
-	// Unmarshal into a temporary map or directly into struct? 
+	// Unmarshal into a temporary map or directly into struct?
 	// To preserve defaults for missing fields, we decode into the struct.
 	// JSON unmarshal doesn't reset fields that are missing in JSON.
 	if err := json.Unmarshal(data, &cfg); err != nil {
