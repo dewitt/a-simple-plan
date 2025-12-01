@@ -97,7 +97,7 @@ To deploy your `my-plan-repo` content using Cloudflare Pages, follow these steps
 3.  **Configure Build Settings**: In the Cloudflare Pages project settings for `my-plan-repo` (under "Settings" -> "Build & deployments"), update the following:
     *   **Build command**: 
         ```bash
-        git clone https://github.com/dewitt/a-simple-plan.git ../builder && cd ../builder && go build -o plan ./cmd/plan && cd $CF_PAGES_REPO_PATH && ../builder/plan build
+        rm -rf .plan_tool && git clone https://github.com/dewitt/a-simple-plan.git .plan_tool && cd .plan_tool && go build -o plan ./cmd/plan && cd .. && ./.plan_tool/plan build
         ```
     *   **Build output directory**: `public`
     *   **Root directory**: `/` (Leave as default)
