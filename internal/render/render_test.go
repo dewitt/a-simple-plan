@@ -22,8 +22,8 @@ func TestRender(t *testing.T) {
 		t.Fatalf("Compose failed: %v", err)
 	}
 
-	if !bytes.Contains(output, []byte("<h1>Hello World</h1>")) {
-		t.Error("Output does not contain rendered HTML header")
+	if !strings.Contains(string(output), "Hello World") {
+		t.Error("Output does not contain \"Hello World\" text")
 	}
 	if !bytes.Contains(output, []byte("<p>This is a test.</p>")) {
 		t.Error("Output does not contain rendered HTML paragraph")

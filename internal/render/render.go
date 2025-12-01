@@ -10,6 +10,8 @@ import (
 	chromahtml "github.com/alecthomas/chroma/v2/formatters/html"
 	"github.com/dewitt/a-simple-plan/internal/config"
 	"github.com/yuin/goldmark"
+	"github.com/yuin/goldmark/extension"
+	"github.com/yuin/goldmark/parser"
 	highlighting "github.com/yuin/goldmark-highlighting/v2"
 )
 
@@ -29,11 +31,17 @@ func New(cfg *config.Config, customTemplate string) *Renderer {
 	// Initialize markdown renderer once
 	md := goldmark.New(
 		goldmark.WithExtensions(
+			extension.GFM,
+			extension.Footnote,
+			extension.Typographer,
 			highlighting.NewHighlighting(
 				highlighting.WithFormatOptions(
 					chromahtml.WithClasses(true),
 				),
 			),
+		),
+		goldmark.WithParserOptions(
+			parser.WithAutoHeadingID(),
 		),
 	)
 
