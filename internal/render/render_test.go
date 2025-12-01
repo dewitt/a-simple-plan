@@ -11,7 +11,7 @@ func TestRender(t *testing.T) {
 	input := []byte("# Hello World\nThis is a test.")
 	now := time.Now()
 
-	r := New(nil, "") // Use default config and template for testing
+	r := New(nil, "", false) // Use default config and template for testing
 	body, err := r.RenderBody(input)
 	if err != nil {
 		t.Fatalf("RenderBody failed: %v", err)
@@ -30,5 +30,19 @@ func TestRender(t *testing.T) {
 	}
 	if !strings.Contains(string(output), "<!DOCTYPE html>") {
 		t.Error("Output does not contain HTML5 doctype")
+	}
+}
+
+func TestRender_AutoLink(t *testing.T) {
+	input := []byte("Check out https://example.com for more info.")
+	r := New(nil, "", false)
+	body, err := r.RenderBody(input)
+	if err != nil {
+		t.Fatalf("RenderBody failed: %v", err)
+	}
+
+	expected := `<a href="https://example.com">https://example.com</a>`
+	if !strings.Contains(string(body), expected) {
+		t.Errorf("Expected auto-linked URL, got: %s", string(body))
 	}
 }

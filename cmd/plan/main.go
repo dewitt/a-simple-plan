@@ -14,6 +14,8 @@ import (
 	"strings"
 	"time"
 
+	"github.com/fsnotify/fsnotify"
+
 	"github.com/dewitt/a-simple-plan/internal/config"
 	"github.com/dewitt/a-simple-plan/internal/render"
 )
@@ -25,6 +27,7 @@ type PlanContext struct {
 	Config    config.Config
 	Template  string // Custom template content
 	CreationTime time.Time
+	LiveReload   bool
 }
 
 func main() {
@@ -278,20 +281,175 @@ func getCreationTime(dir, file string) time.Time {
 }
 
 func preview(ctx *PlanContext) {
+	ctx.LiveReload = true
 	port := "8081"
+	
+	// Initial build
 	build(ctx)
 
+	// Setup SSE
+	reloadCh := make(chan struct{})
+	
+	// Setup File Watcher
+	watcher, err := fsnotify.NewWatcher()
+	if err != nil {
+		log.Fatal(err)
+	}
+	defer watcher.Close()
+
+	go func() {
+		for {
+			select {
+			case event, ok := <-watcher.Events:
+				if !ok {
+					return
+				}
+				// Rebuild on write to plan file or template
+				if event.Op&fsnotify.Write == fsnotify.Write {
+					filename := filepath.Base(event.Name)
+					if filename == ctx.PlanFile || filename == "template.html" || filename == "settings.json" {
+						fmt.Printf("Change detected in %s, rebuilding...\n", filename)
+						// Re-initialize context to catch settings/template changes
+						// But for simplicity, we just rebuild mostly. 
+						// To properly reload settings/template, we'd need to re-run init logic.
+						// For now, let's just re-read the template if it changed? 
+						// Simpler: Just call build. If template changed, we might need to reload it.
+						// Let's do a partial context refresh if needed, but for now just Build.
+						// Actually build() re-reads plan.md, but initContext loaded template. 
+						// So if template.html changes, we need to update ctx.Template.
+						
+						if filename == "template.html" {
+							if tmplBytes, err := os.ReadFile(filepath.Join(ctx.PlanDir, "template.html")); err == nil {
+								ctx.Template = string(tmplBytes)
+							}
+						}
+
+						build(ctx)
+						
+						// Notify clients
+						// Non-blocking send
+						go func() {
+							// Give time for file system to settle / browser to be ready?
+							// Send multiple signals?
+							reloadCh <- struct{}{} 
+						}()
+					}
+				}
+			case err, ok := <-watcher.Errors:
+				if !ok {
+					return
+				}
+				log.Println("error:", err)
+			}
+		}
+	}()
+
+	err = watcher.Add(ctx.PlanDir)
+	if err != nil {
+		log.Fatal(err)
+	}
+
+	mux := http.NewServeMux()
+	
+	// SSE Endpoint
+	mux.HandleFunc("/events", func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "text/event-stream")
+		w.Header().Set("Cache-Control", "no-cache")
+		w.Header().Set("Connection", "keep-alive")
+		w.Header().Set("Access-Control-Allow-Origin", "*")
+
+		flusher, ok := w.(http.Flusher)
+		if !ok {
+			http.Error(w, "Streaming unsupported!", http.StatusInternalServerError)
+			return
+		}
+
+		// Keep connection open
+		fmt.Fprintf(w, "retry: 1000\n\n") 
+		flusher.Flush()
+
+		// Listen for global reload
+		// In a real server we'd register this client to a hub.
+		// For a local dev tool, we can just loop or wait on a broadcast condition.
+	})
+
+	// Re-implementing the handler logic properly
+	
+	broker := make(chan chan struct{})
+	remove := make(chan chan struct{})
+	broadcast := make(chan struct{})
+	
+	go func() {
+		active := make(map[chan struct{}]bool)
+		for {
+			select {
+			case c := <-broker:
+				active[c] = true
+			case c := <-remove:
+				delete(active, c)
+			case <-broadcast:
+				for c := range active {
+					select {
+					case c <- struct{}{}:
+					default:
+					}
+				}
+			}
+		}
+	}()
+	
+	// Hook watcher to broadcast
+	go func() {
+		for range reloadCh {
+			broadcast <- struct{}{}
+		}
+	}()
+
+	mux.HandleFunc("/events", func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "text/event-stream")
+		w.Header().Set("Cache-Control", "no-cache")
+		w.Header().Set("Connection", "keep-alive")
+
+		flusher, ok := w.(http.Flusher)
+		if !ok {
+			http.Error(w, "Streaming unsupported!", http.StatusInternalServerError)
+			return
+		}
+
+		ch := make(chan struct{}, 1)
+		broker <- ch
+		defer func() { remove <- ch }()
+
+		// Heartbeat to keep connection alive
+		ticker := time.NewTicker(15 * time.Second)
+		defer ticker.Stop()
+
+		for {
+			select {
+			case <-r.Context().Done():
+				return
+			case <-ch:
+				fmt.Fprintf(w, "data: reload\n\n")
+				flusher.Flush()
+			case <-ticker.C:
+				fmt.Fprintf(w, ": heartbeat\n\n")
+				flusher.Flush()
+			}
+		}
+	})
+
 	fs := http.FileServer(http.Dir(ctx.OutputDir))
-	http.Handle("/", fs)
+	mux.Handle("/", fs)
 
 	fmt.Printf("Starting preview server at http://localhost:%s/index.html\n", port)
+	fmt.Println("Watching for changes...")
 
 	go func() {
 		time.Sleep(500 * time.Millisecond)
 		openBrowser("http://localhost:" + port + "/index.html")
 	}()
 
-	if err := http.ListenAndServe(":"+port, nil); err != nil {
+	if err := http.ListenAndServe(":"+port, mux); err != nil {
 		log.Fatal(err)
 	}
 }
@@ -415,7 +573,7 @@ func buildHistory(ctx *PlanContext) error {
 }
 
 func renderAndWrite(ctx *PlanContext, content []byte, modTime time.Time, outPath string) error {
-	r := render.New(&ctx.Config, ctx.Template)
+	r := render.New(&ctx.Config, ctx.Template, ctx.LiveReload)
 
 	body, err := r.RenderBody(content)
 	if err != nil {
