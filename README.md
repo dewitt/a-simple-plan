@@ -88,13 +88,13 @@ Create a `template.html` in your plan directory to override the default design.
 
 ## Deployment with Cloudflare Pages
 
-To deploy your `dewitt-plan` content using Cloudflare Pages, follow these steps:
+To deploy your `my-plan-repo` content using Cloudflare Pages, follow these steps:
 
 1.  **Make `a-simple-plan` (this repository) Public**: Cloudflare Pages needs to access the builder to run the build command. Go to your GitHub repository settings for `a-simple-plan` and ensure its visibility is set to `Public`.
 
-2.  **Connect `dewitt-plan` to Cloudflare Pages**: In your Cloudflare Dashboard, go to "Pages" and connect your `dewitt-plan` GitHub repository as a new project.
+2.  **Connect `my-plan-repo` to Cloudflare Pages**: In your Cloudflare Dashboard, go to "Pages" and connect your `my-plan-repo` GitHub repository as a new project.
 
-3.  **Configure Build Settings**: In the Cloudflare Pages project settings for `dewitt-plan` (under "Settings" -> "Build & deployments"), update the following:
+3.  **Configure Build Settings**: In the Cloudflare Pages project settings for `my-plan-repo` (under "Settings" -> "Build & deployments"), update the following:
     *   **Build command**: 
         ```bash
         git clone https://github.com/dewitt/a-simple-plan.git ../builder && cd ../builder && go install ./cmd/plan && cd $CF_PAGES_REPO_PATH && ~/go/bin/plan build
@@ -105,7 +105,7 @@ To deploy your `dewitt-plan` content using Cloudflare Pages, follow these steps:
 4.  **Environment Variables (Optional but Recommended)**:
     *   Ensure `GO_VERSION` is set to `1.22` or a newer version (e.g., `1.22`). This ensures Cloudflare uses a compatible Go version for building the `plan` tool.
 
-Now, every time you `git push` changes to your `dewitt-plan` repository, Cloudflare Pages will automatically fetch the latest builder, build your site, and deploy it.
+Now, every time you `git push` changes to your `my-plan-repo` repository, Cloudflare Pages will automatically fetch the latest builder, build your site, and deploy it.
 
 ## How it Works
 

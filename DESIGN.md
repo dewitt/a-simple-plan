@@ -7,7 +7,7 @@ To create a publishing workflow that is as simple as maintaining a single text f
 
 The system consists of two distinct components:
 1.  **The Builder (`a-simple-plan`)**: The logic and tooling.
-2.  **The Data (`dewitt-plan`)**: The content and configuration.
+2.  **The Data (`my-plan-repo`)**: The content and configuration.
 
 ### The Builder
 *   **Language**: Go.
