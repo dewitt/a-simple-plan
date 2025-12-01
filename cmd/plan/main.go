@@ -9,6 +9,7 @@ import (
 	"os/exec"
 	"path/filepath"
 	"runtime"
+	"runtime/debug"
 	"sort"
 	"strings"
 	"time"
@@ -29,8 +30,10 @@ type PlanContext struct {
 func main() {
 	// Define flags
 	var inputPath string
+	var showVersion bool
 	flag.StringVar(&inputPath, "f", ".", "Path to the plan file or directory")
 	flag.StringVar(&inputPath, "file", ".", "Path to the plan file or directory")
+	flag.BoolVar(&showVersion, "version", false, "Print version information")
 
 	flag.Usage = func() {
 		fmt.Fprintf(os.Stderr, "Usage: plan [options] <command>\n")
@@ -45,19 +48,33 @@ func main() {
 		fmt.Fprintf(os.Stderr, "\nOptions:\n")
 		flag.PrintDefaults()
 	}
+	
+	// Manually parse args to handle flags before the subcommand
+	// Standard flag.Parse() stops at the first non-flag argument (the subcommand)
+	flag.Parse()
 
-	if len(os.Args) < 2 {
+	if showVersion {
+		printVersion()
+		return
+	}
+
+	if len(flag.Args()) < 1 {
 		flag.Usage()
 		os.Exit(1)
 	}
 
-	cmd := os.Args[1]
+	cmd := flag.Arg(0)
 
-	// Parse flags after command
-	if len(os.Args) > 2 {
-		if err := flag.CommandLine.Parse(os.Args[2:]); err != nil {
-			os.Exit(1)
-		}
+	// Re-parse flags if they were placed after the command (legacy support / user convenience)
+	// This is a bit tricky because flag.Parse() already consumed what it could.
+	// But since we want to support `plan preview -f ...` and `plan -f ... preview`,
+	// we can check if there are args after the command.
+	if len(flag.Args()) > 1 {
+		// Create a new flag set to parse the remaining arguments
+		subFs := flag.NewFlagSet("subcommand", flag.ContinueOnError)
+		subFs.StringVar(&inputPath, "f", inputPath, "Path to the plan file or directory")
+		subFs.StringVar(&inputPath, "file", inputPath, "Path to the plan file or directory")
+		subFs.Parse(flag.Args()[1:])
 	} else if cmd == "-h" || cmd == "--help" {
 		flag.Usage()
 		return
@@ -100,6 +117,26 @@ func main() {
 		fmt.Printf("Unknown command: %s\n", cmd)
 		flag.Usage()
 		os.Exit(1)
+	}
+}
+
+func printVersion() {
+	fmt.Println("plan - A Simple Plan")
+	if info, ok := debug.ReadBuildInfo(); ok {
+		fmt.Printf("Go Version: %s\n", info.GoVersion)
+		for _, setting := range info.Settings {
+			if setting.Key == "vcs.revision" {
+				fmt.Printf("Git Revision: %s\n", setting.Value)
+			}
+			if setting.Key == "vcs.time" {
+				fmt.Printf("Git Time: %s\n", setting.Value)
+			}
+			if setting.Key == "vcs.modified" && setting.Value == "true" {
+				fmt.Println("Git Status: dirty")
+			}
+		}
+	} else {
+		fmt.Println("Build info not available.")
 	}
 }
 
