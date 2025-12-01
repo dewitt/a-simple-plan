@@ -23,6 +23,7 @@ type PlanContext struct {
 	OutputDir string
 	Config    config.Config
 	Template  string // Custom template content
+	CreationTime time.Time
 }
 
 func main() {
@@ -140,13 +141,42 @@ func initContext(path string) (*PlanContext, error) {
 		tmplContent = string(tmplBytes)
 	}
 
+	// Determine creation time
+	creationTime := getCreationTime(planDir, planFile)
+	if creationTime.IsZero() {
+		// Fallback to file mod time if git fails or no commits
+		if info, err := os.Stat(filepath.Join(planDir, planFile)); err == nil {
+			creationTime = info.ModTime()
+		} else {
+			creationTime = time.Now()
+		}
+	}
+
 	return &PlanContext{
-		PlanDir:   planDir,
-		PlanFile:  planFile,
-		OutputDir: filepath.Join(planDir, "public"),
-		Config:    cfg,
-		Template:  tmplContent,
+		PlanDir:      planDir,
+		PlanFile:     planFile,
+		OutputDir:    filepath.Join(planDir, "public"),
+		Config:       cfg,
+		Template:     tmplContent,
+		CreationTime: creationTime,
 	}, nil
+}
+
+func getCreationTime(dir, file string) time.Time {
+	cmd := exec.Command("git", "log", "--reverse", "--format=%aI", file)
+	cmd.Dir = dir
+	out, err := cmd.Output()
+	if err != nil {
+		return time.Time{}
+	}
+	lines := strings.Split(string(out), "\n")
+	if len(lines) > 0 {
+		t, err := time.Parse(time.RFC3339, strings.TrimSpace(lines[0]))
+		if err == nil {
+			return t
+		}
+	}
+	return time.Time{}
 }
 
 func preview(ctx *PlanContext) {
@@ -294,7 +324,7 @@ func renderAndWrite(ctx *PlanContext, content []byte, modTime time.Time, outPath
 		return fmt.Errorf("rendering body: %w", err)
 	}
 
-	html, err := r.Compose(body, modTime, modTime)
+	html, err := r.Compose(body, ctx.CreationTime, modTime)
 	if err != nil {
 		return fmt.Errorf("composing html: %w", err)
 	}
