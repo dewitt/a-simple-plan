@@ -30,10 +30,8 @@ type PlanContext struct {
 func main() {
 	// Define flags
 	var inputPath string
-	var showVersion bool
 	flag.StringVar(&inputPath, "f", ".", "Path to the plan file or directory")
 	flag.StringVar(&inputPath, "file", ".", "Path to the plan file or directory")
-	flag.BoolVar(&showVersion, "version", false, "Print version information")
 
 	flag.Usage = func() {
 		fmt.Fprintf(os.Stderr, "Usage: plan [options] <command>\n")
@@ -45,6 +43,7 @@ func main() {
 		fmt.Fprintf(os.Stderr, "  revert   - Discard local changes\n")
 		fmt.Fprintf(os.Stderr, "  rollback - Revert to previous version and publish\n")
 		fmt.Fprintf(os.Stderr, "  edit     - Open plan file in default editor\n")
+		fmt.Fprintf(os.Stderr, "  debug    - Print debug information\n")
 		fmt.Fprintf(os.Stderr, "\nOptions:\n")
 		flag.PrintDefaults()
 	}
@@ -52,11 +51,6 @@ func main() {
 	// Manually parse args to handle flags before the subcommand
 	// Standard flag.Parse() stops at the first non-flag argument (the subcommand)
 	flag.Parse()
-
-	if showVersion {
-		printVersion()
-		return
-	}
 
 	if len(flag.Args()) < 1 {
 		flag.Usage()
@@ -106,6 +100,8 @@ func main() {
 		rollback(ctx, commit)
 	case "edit":
 		edit(ctx)
+	case "debug":
+		debugCmd(ctx)
 	case "-h", "--help":
 		flag.Usage()
 	default:
@@ -120,23 +116,88 @@ func main() {
 	}
 }
 
-func printVersion() {
-	fmt.Println("plan - A Simple Plan")
+func debugCmd(ctx *PlanContext) {
+	fmt.Println("=== Plan Debug Info ===")
+	
+	// Build Info
+	fmt.Println("\n-- Build Information --")
 	if info, ok := debug.ReadBuildInfo(); ok {
-		fmt.Printf("Go Version: %s\n", info.GoVersion)
+		fmt.Printf("Go Version:   %s\n", info.GoVersion)
 		for _, setting := range info.Settings {
 			if setting.Key == "vcs.revision" {
 				fmt.Printf("Git Revision: %s\n", setting.Value)
 			}
 			if setting.Key == "vcs.time" {
-				fmt.Printf("Git Time: %s\n", setting.Value)
+				fmt.Printf("Git Time:     %s\n", setting.Value)
 			}
 			if setting.Key == "vcs.modified" && setting.Value == "true" {
-				fmt.Println("Git Status: dirty")
+				fmt.Println("Git Status:   dirty")
 			}
 		}
 	} else {
 		fmt.Println("Build info not available.")
+	}
+	fmt.Printf("OS/Arch:      %s/%s\n", runtime.GOOS, runtime.GOARCH)
+
+	// Context Info
+	fmt.Println("\n-- Context --")
+	cwd, _ := os.Getwd()
+	fmt.Printf("Working Dir:  %s\n", cwd)
+	fmt.Printf("Plan Dir:     %s\n", ctx.PlanDir)
+	fmt.Printf("Plan File:    %s\n", ctx.PlanFile)
+	fmt.Printf("Output Dir:   %s\n", ctx.OutputDir)
+	fmt.Printf("Creation:     %s\n", ctx.CreationTime.Format(time.RFC3339))
+
+	// Configuration
+	fmt.Println("\n-- Configuration --")
+	fmt.Printf("Username:     %s\n", ctx.Config.Username)
+	fmt.Printf("FullName:     %s\n", ctx.Config.FullName)
+	fmt.Printf("Title:        %s\n", ctx.Config.Title)
+	fmt.Printf("Timezone:     %s\n", ctx.Config.Timezone)
+	
+	tmplStatus := "Default (Embedded)"
+	if len(ctx.Template) > 0 {
+		// Simple check to see if it matches default is hard since default is embedded in another package
+		// But if initContext loaded it from disk, we know. 
+		// Actually initContext sets ctx.Template to file content if found, else empty string?
+		// Re-reading initContext: 
+		// tmplContent is set ONLY if os.ReadFile succeeds. 
+		// But render.New defaults if passed empty string.
+		// So if ctx.Template is NOT empty, it was loaded from file.
+		tmplStatus = "Custom (Loaded from file)"
+	} else {
+		// It might still be empty string in ctx, but renderer uses default.
+		tmplStatus = "Default (Embedded)"
+	}
+	fmt.Printf("Template:     %s\n", tmplStatus)
+
+	// Git Status of Plan
+	fmt.Println("\n-- Plan Git Status --")
+	if _, err := exec.LookPath("git"); err == nil {
+		cmd := exec.Command("git", "status", "-s", ctx.PlanFile)
+		cmd.Dir = ctx.PlanDir
+		out, err := cmd.CombinedOutput()
+		if err == nil {
+			status := strings.TrimSpace(string(out))
+			if status == "" {
+				fmt.Println("Status:       Clean")
+			} else {
+				fmt.Printf("Status:       %s\n", status)
+			}
+		} else {
+			fmt.Printf("Status:       Error checking git status (%v)\n", err)
+		}
+
+		cmdLog := exec.Command("git", "log", "-1", "--format=%h - %s (%an)", ctx.PlanFile)
+		cmdLog.Dir = ctx.PlanDir
+		outLog, errLog := cmdLog.CombinedOutput()
+		if errLog == nil {
+			fmt.Printf("Last Commit:  %s", string(outLog))
+		} else {
+			fmt.Println("Last Commit:  (None or not a git repo)")
+		}
+	} else {
+		fmt.Println("Git not found in PATH")
 	}
 }
 
