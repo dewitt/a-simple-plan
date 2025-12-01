@@ -1,50 +1,54 @@
-# Design Document for the Single-Post Blogging Platform
+# Design Document
 
-## 1. Goal
-The primary goal is to create an extremely efficient, single-author, single-post blogging platform. It generates a static HTML site from a Markdown file, enabling zero-latency serving via a CDN (Cloudflare Pages).
+## Goals
+To create a publishing workflow that is as simple as maintaining a single text file, yet robust enough to produce a full-featured blog with history.
 
-## 2. Core Principles
-- **Simplicity:** Keep the architecture and codebase as simple as possible.
-- **Performance:** Optimize for speed by serving pre-rendered static HTML.
-- **Ease of Authoring:** Authors should only need to write and save a Markdown file.
+## Architecture
 
-## 3. Architecture Proposal
+The system consists of two distinct components:
+1.  **The Builder (`a-simple-plan`)**: The logic and tooling.
+2.  **The Data (`dewitt-plan`)**: The content and configuration.
 
-### 3.1. Content Source
-- The blog post will be a single Markdown file, conventionally named `plan.md`, located in the project's root directory.
+### The Builder
+*   **Language**: Go.
+*   **Dependencies**: `git` (CLI), `goldmark` (Markdown), `chroma` (Syntax Highlighting).
+*   **Responsibility**: 
+    *   Parse the plan directory.
+    *   Read configuration.
+    *   Interact with `git` to retrieve current and historical file versions.
+    *   Render Markdown to HTML.
+    *   Generate the directory structure in `public/`.
 
-### 3.2. Serving Layer
-- **Static Hosting:** The site is hosted on Cloudflare Pages.
-- **No Runtime Server:** There is no dynamic backend. The content is served as a static `index.html` file.
+### The Data
+*   **Format**: Standard Git Repository.
+*   **Files**:
+    *   `plan.md`: The single source of content.
+    *   `settings.json`: Configuration (User details, title).
+    *   `template.html`: Custom HTML layout.
 
-### 3.3. Markdown to HTML Conversion
-- A custom CLI tool (`plan`) handles the build process.
-- The `plan build` command:
-    1. Reads the `plan.md` file.
-    2. Converts the Markdown content to HTML using the `goldmark` library.
-    3. Injects the HTML into a template.
-    4. Writes the result to `public/index.html`.
+## Data Flow
 
-### 3.4. User Interface (Reader-facing)
-- The served HTML is a minimalist page with mid-90s workstation styling (Terminal/Solarized aesthetics).
-- CSS is inlined to avoid extra HTTP requests.
-- No client-side JavaScript is required for rendering.
+1.  **Initialization**:
+    *   User runs `plan build`.
+    *   System identifies the context (Plan Directory).
+    *   Config and Template are loaded.
 
-### 3.5. Authoring CLI (`plan`)
-To streamline the authoring process, a CLI tool named `plan` is used.
-- **Commands:**
-    - `plan preview`: Builds the static site locally and serves it via a temporary local web server, opening the browser automatically.
-    - `plan build`: Generates the static site in the `public/` directory.
-    - `plan publish`: Automates the publishing workflow. It adds changes to git, commits, and pushes to GitHub. Cloudflare Pages detects the push and deploys the site.
-    - **Flags:** Commands support a `-f` or `--file` flag to specify a different plan file.
+2.  **Current Build**:
+    *   `plan.md` is read from the filesystem.
+    *   Metadata (mod time) is gathered.
+    *   Content is rendered and written to `public/index.html`.
 
-## 4. Development Workflow
-- **Authoring:** The author edits `plan.md`.
-- **Previewing:** Run `plan preview` to verify content locally.
-- **Publishing:** Run `plan publish` to push changes to the repository.
-- **Deployment:** Cloudflare Pages automatically builds (using `plan build`) and deploys the new version.
+3.  **History Build**:
+    *   System runs `git log` on `plan.md`.
+    *   Unique dates are identified.
+    *   For each date, the latest commit hash is found.
+    *   `git show` retrieves the file content for that hash.
+    *   Historical content is rendered to `public/YYYY/MM/DD/index.html`.
+    *   Index pages are generated for `public/YYYY/` and `public/YYYY/MM/`.
 
-## 5. Future Considerations
-- **Theming:** More sophisticated styling options.
-- **Multiple Posts:** Support for an archive or multiple distinct posts.
-- **Asset Management:** Handling images or other static assets alongside the markdown.
+## URL Structure
+
+*   `/`: The current version of the plan.
+*   `/YYYY/`: List of updates in that year.
+*   `/YYYY/MM/`: List of updates in that month.
+*   `/YYYY/MM/DD/`: The specific version of the plan as it existed on that day.

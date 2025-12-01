@@ -102,6 +102,8 @@ func main() {
 	}
 }
 
+// initContext resolves the plan directory and file, loads configuration, and reads any custom template.
+// It handles both file paths (-f plan.md) and directory paths (-f ./my-plan).
 func initContext(path string) (*PlanContext, error) {
 	info, err := os.Stat(path)
 	if err != nil {
@@ -190,6 +192,9 @@ func build(ctx *PlanContext) {
 	fmt.Println("Build complete.")
 }
 
+// buildHistory reconstructs the past versions of the plan file using git history.
+// It iterates through unique dates in the git log, retrieves the file content for that date,
+// and generates static pages for each day, as well as year and month index pages.
 func buildHistory(ctx *PlanContext) error {
 	fmt.Println("Building history...")
 

@@ -1,67 +1,99 @@
-# A Simple Plan (Builder)
+# A Simple Plan
 
-This is the builder application for "A Simple Plan" blog. It is designed to work with a separate "Plan Data" repository.
+**A Simple Plan** is a minimalist static site generator designed for publishing a personal "plan" or daily log. It turns a single Markdown file (`plan.md`) into a static website with a full history of changes preserved as individual posts.
+
+## Core Philosophy
+
+1.  **Single Source of Truth**: You only ever edit one file: `plan.md`.
+2.  **Git-Powered History**: The history of your blog is just the git history of that file.
+3.  **Zero Friction**: No front-matter, no file management, no complex configuration.
+
+## Features
+
+*   **Instant Preview**: Run a local server to see your changes as you type.
+*   **Automatic Archiving**: The builder uses `git log` to reconstruct the state of your plan for every day it was modified, generating a browsable calendar of your past posts.
+*   **Customizable**: Supports a simple `settings.json` and custom HTML templates.
+*   **Separation of Concerns**: The builder logic is separate from your content data.
 
 ## Installation
 
 ```bash
-git clone git@github.com:dewitt/a-simple-plan.git
+# Clone the repository
+git clone https://github.com/dewitt/a-simple-plan.git
 cd a-simple-plan
+
+# Install the binary
 go install ./cmd/plan
 ```
+*Ensure your `$GOPATH/bin` (usually `~/go/bin`) is in your system `$PATH`.*
 
 ## Usage
 
-Run the `plan` command, pointing it to your plan repository or specific plan file.
+### 1. Setup Your Plan Repository
+
+Create a new directory (or git repository) for your plan.
 
 ```bash
-plan build -f /path/to/your/plan-repo/plan.md
+mkdir my-plan
+cd my-plan
+git init
+touch plan.md
 ```
 
-If you are inside your plan repo:
+### 2. Run Commands
+
+All commands can be run from within your plan directory, or by using the `-f` flag to point to it.
 
 ```bash
+# Preview your site locally at http://localhost:8081
+plan preview
+
+# Edit your plan.md in your default editor
+plan edit
+
+# Build the static site to the public/ directory
 plan build
+
+# Commit changes to git
+plan save
+
+# Commit and push changes to origin
+plan publish
 ```
 
-## Commands
+### 3. Configuration (Optional)
 
-*   `preview`: Build and serve locally.
-*   `build`: Generate static HTML.
-*   `save`: Commit local changes (in the plan repo).
-*   `publish`: Commit and push to origin (in the plan repo).
-*   `revert`: Discard local changes.
-*   `rollback`: Revert to a previous version.
-*   `edit`: Open the plan file in your editor.
-
-## Plan Repository Structure
-
-Your plan repository should look like this:
-
-```
-my-plan-repo/
-├── plan.md          (Required) The content of your plan.
-├── settings.json    (Optional) Configuration for your site.
-└── template.html    (Optional) Custom HTML template.
-```
-
-### settings.json
+Create a `settings.json` file in your plan directory to customize the output.
 
 ```json
 {
-  "username": "yourusername",
-  "name": "Your Full Name",
-  "directory": "/home/yourname",
+  "username": "dewitt",
+  "name": "DeWitt Clinton",
+  "directory": "/home/dewitt",
   "shell": "/bin/zsh",
-  "timezone": "America/New_York",
+  "timezone": "America/Los_Angeles",
   "title": "My Plan"
 }
 ```
 
-### template.html
+### 4. Templating (Optional)
 
-If you provide a custom template, use the following placeholders:
-*   `{{content}}`: The rendered markdown content.
-*   `{{onSince}}`: Creation date string.
-*   `{{modTimeUnix}}`: Modification timestamp.
-*   `{{username}}`, `{{fullname}}`, `{{directory}}`, `{{shell}}`, `{{title}}`: From settings.
+Create a `template.html` in your plan directory to override the default design.
+
+**Available Placeholders:**
+*   `{{content}}`: The rendered Markdown body.
+*   `{{onSince}}`: The "created at" date string.
+*   `{{modTimeUnix}}`: The modification timestamp (for JavaScript).
+*   `{{username}}`, `{{fullname}}`, `{{directory}}`, `{{shell}}`, `{{title}}`: Values from your settings.
+
+## How it Works
+
+1.  **Current State**: The builder renders your current `plan.md` to `public/index.html`.
+2.  **History**: It walks through the `git log` of your `plan.md`.
+3.  **Reconstruction**: For every date the file changed, it retrieves the content from that specific commit.
+4.  **Generation**: It generates a static page for that date (e.g., `public/2025/12/01/index.html`) and builds index pages for years and months.
+
+## Requirements
+
+*   **Go**: 1.22+ (to build the tool).
+*   **Git**: Must be installed and available in your `$PATH`.
