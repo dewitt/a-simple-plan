@@ -8,21 +8,24 @@ import (
 	"time"
 
 	chromahtml "github.com/alecthomas/chroma/v2/formatters/html"
+	"github.com/dewitt/dewitt-blog/internal/config"
 	"github.com/yuin/goldmark"
 	highlighting "github.com/yuin/goldmark-highlighting/v2"
 )
 
 //go:embed template.html
-var templateHTML string
+var defaultTemplateHTML string
 
 // Renderer handles the conversion of markdown to HTML with dynamic headers.
 type Renderer struct {
-	mdRenderer goldmark.Markdown
-	loc        *time.Location
+	mdRenderer   goldmark.Markdown
+	loc          *time.Location
+	config       *config.Config
+	templateHTML string
 }
 
 // New creates a new Renderer.
-func New() *Renderer {
+func New(cfg *config.Config, customTemplate string) *Renderer {
 	// Initialize markdown renderer once
 	md := goldmark.New(
 		goldmark.WithExtensions(
@@ -34,15 +37,27 @@ func New() *Renderer {
 		),
 	)
 
+	tz := "America/Los_Angeles"
+	if cfg != nil && cfg.Timezone != "" {
+		tz = cfg.Timezone
+	}
+
 	// Pre-load location
-	loc, err := time.LoadLocation("America/Los_Angeles")
+	loc, err := time.LoadLocation(tz)
 	if err != nil {
 		loc = time.UTC
 	}
 
+	tmpl := defaultTemplateHTML
+	if customTemplate != "" {
+		tmpl = customTemplate
+	}
+
 	return &Renderer{
-		mdRenderer: md,
-		loc:        loc,
+		mdRenderer:   md,
+		loc:          loc,
+		config:       cfg,
+		templateHTML: tmpl,
 	}
 }
 
@@ -62,9 +77,17 @@ func (r *Renderer) Compose(bodyHTML []byte, created, updated time.Time) ([]byte,
 	modTimeUnix := fmt.Sprintf("%d", updated.Unix())
 
 	// Inject dynamic values into the template.
-	outputStr := templateHTML
-	outputStr = strings.Replace(outputStr, "{{onSince}}", onSince, 1)
-	outputStr = strings.Replace(outputStr, "{{modTimeUnix}}", modTimeUnix, 1)
+	outputStr := r.templateHTML
+	outputStr = strings.ReplaceAll(outputStr, "{{onSince}}", onSince)
+	outputStr = strings.ReplaceAll(outputStr, "{{modTimeUnix}}", modTimeUnix)
+
+	if r.config != nil {
+		outputStr = strings.ReplaceAll(outputStr, "{{username}}", r.config.Username)
+		outputStr = strings.ReplaceAll(outputStr, "{{fullname}}", r.config.FullName)
+		outputStr = strings.ReplaceAll(outputStr, "{{directory}}", r.config.Directory)
+		outputStr = strings.ReplaceAll(outputStr, "{{shell}}", r.config.Shell)
+		outputStr = strings.ReplaceAll(outputStr, "{{title}}", r.config.Title)
+	}
 
 	// Inject Content
 	parts := strings.Split(outputStr, "{{content}}")
@@ -81,15 +104,4 @@ func (r *Renderer) Compose(bodyHTML []byte, created, updated time.Time) ([]byte,
 	finalBuf.WriteString(parts[1])
 
 	return finalBuf.Bytes(), nil
-}
-
-// Render converts markdown content to a full HTML page.
-// It is kept for backward compatibility but using New() + RenderBody + Compose is preferred for performance.
-func Render(md []byte, created, updated time.Time) ([]byte, error) {
-	r := New()
-	body, err := r.RenderBody(md)
-	if err != nil {
-		return nil, err
-	}
-	return r.Compose(body, created, updated)
 }

@@ -13,16 +13,24 @@ import (
 	"strings"
 	"time"
 
+	"github.com/dewitt/dewitt-blog/internal/config"
 	"github.com/dewitt/dewitt-blog/internal/render"
 )
 
+type PlanContext struct {
+	PlanDir      string
+	PlanFile     string // Relative to PlanDir
+	OutputDir    string
+	Config       config.Config
+	Template     string // Custom template content
+}
+
 func main() {
 	// Define flags
-	var planFile string
-	flag.StringVar(&planFile, "f", "plan.md", "Path to the plan file")
-	flag.StringVar(&planFile, "file", "plan.md", "Path to the plan file")
+	var inputPath string
+	flag.StringVar(&inputPath, "f", ".", "Path to the plan file or directory")
+	flag.StringVar(&inputPath, "file", ".", "Path to the plan file or directory")
 
-	// Custom usage to show commands
 	flag.Usage = func() {
 		fmt.Fprintf(os.Stderr, "Usage: plan [options] <command>\n")
 		fmt.Fprintf(os.Stderr, "\nCommands:\n")
@@ -44,51 +52,46 @@ func main() {
 
 	cmd := os.Args[1]
 
+	// Parse flags after command
+	if len(os.Args) > 2 {
+		if err := flag.CommandLine.Parse(os.Args[2:]); err != nil {
+			os.Exit(1)
+		}
+	} else if cmd == "-h" || cmd == "--help" {
+		flag.Usage()
+		return
+	}
+
+	// Initialize Context
+	ctx, err := initContext(inputPath)
+	if err != nil {
+		log.Fatalf("Initialization failed: %v", err)
+	}
+
 	switch cmd {
 	case "preview":
-		if err := flag.CommandLine.Parse(os.Args[2:]); err != nil {
-			os.Exit(1)
-		}
-		preview(planFile)
+		preview(ctx)
 	case "build":
-		if err := flag.CommandLine.Parse(os.Args[2:]); err != nil {
-			os.Exit(1)
-		}
-		build(planFile)
+		build(ctx)
 	case "save":
-		if err := flag.CommandLine.Parse(os.Args[2:]); err != nil {
-			os.Exit(1)
-		}
-		save(planFile)
+		save(ctx)
 	case "publish":
-		if err := flag.CommandLine.Parse(os.Args[2:]); err != nil {
-			os.Exit(1)
-		}
-		publish(planFile)
+		publish(ctx)
 	case "revert":
-		if err := flag.CommandLine.Parse(os.Args[2:]); err != nil {
-			os.Exit(1)
-		}
-		revert(planFile)
+		revert(ctx)
 	case "rollback":
-		if err := flag.CommandLine.Parse(os.Args[2:]); err != nil {
-			os.Exit(1)
-		}
 		args := flag.CommandLine.Args()
 		commit := ""
 		if len(args) > 0 {
 			commit = args[0]
 		}
-		rollback(planFile, commit)
+		rollback(ctx, commit)
 	case "edit":
-		if err := flag.CommandLine.Parse(os.Args[2:]); err != nil {
-			os.Exit(1)
-		}
-		edit(planFile)
+		edit(ctx)
 	case "-h", "--help":
 		flag.Usage()
 	default:
-		if cmd[0] == '-' {
+		if strings.HasPrefix(cmd, "-") {
 			fmt.Printf("Unknown command or invalid usage: %s\n", cmd)
 			flag.Usage()
 			os.Exit(1)
@@ -99,14 +102,59 @@ func main() {
 	}
 }
 
-func preview(file string) {
-	port := "8081"
-	build(file)
+func initContext(path string) (*PlanContext, error) {
+	info, err := os.Stat(path)
+	if err != nil {
+		return nil, fmt.Errorf("stat input path: %w", err)
+	}
 
-	fs := http.FileServer(http.Dir("public"))
+	var planDir, planFile string
+	if info.IsDir() {
+		planDir = path
+		planFile = "plan.md"
+	} else {
+		planDir = filepath.Dir(path)
+		planFile = filepath.Base(path)
+	}
+
+	// Abs path for clarity
+	absDir, err := filepath.Abs(planDir)
+	if err != nil {
+		return nil, err
+	}
+	planDir = absDir
+
+	// Load Config
+	cfg, err := config.Load(filepath.Join(planDir, "settings.json"))
+	if err != nil {
+		log.Printf("Warning: Failed to load settings.json, using defaults: %v", err)
+		cfg = config.DefaultConfig()
+	}
+
+	// Load Template
+	tmplContent := ""
+	tmplPath := filepath.Join(planDir, "template.html")
+	if tmplBytes, err := os.ReadFile(tmplPath); err == nil {
+		tmplContent = string(tmplBytes)
+	}
+
+	return &PlanContext{
+		PlanDir:   planDir,
+		PlanFile:  planFile,
+		OutputDir: filepath.Join(planDir, "public"),
+		Config:    cfg,
+		Template:  tmplContent,
+	}, nil
+}
+
+func preview(ctx *PlanContext) {
+	port := "8081"
+	build(ctx)
+
+	fs := http.FileServer(http.Dir(ctx.OutputDir))
 	http.Handle("/", fs)
 
-	fmt.Printf("Starting preview server for static content at http://localhost:%s/index.html\n", port)
+	fmt.Printf("Starting preview server at http://localhost:%s/index.html\n", port)
 
 	go func() {
 		time.Sleep(500 * time.Millisecond)
@@ -118,39 +166,34 @@ func preview(file string) {
 	}
 }
 
-func build(file string) {
-	fmt.Printf("Building %s...\n", file)
+func build(ctx *PlanContext) {
+	fullPath := filepath.Join(ctx.PlanDir, ctx.PlanFile)
+	fmt.Printf("Building %s...\n", fullPath)
 
-	// 1. Build current version
-	content, err := os.ReadFile(file)
+	content, err := os.ReadFile(fullPath)
 	if err != nil {
 		log.Fatalf("Failed to read file: %v", err)
 	}
-	info, err := os.Stat(file)
+	info, err := os.Stat(fullPath)
 	if err != nil {
 		log.Fatalf("Failed to stat file: %v", err)
 	}
 
-	if err := renderAndWrite(content, info.ModTime(), "public/index.html"); err != nil {
+	if err := renderAndWrite(ctx, content, info.ModTime(), filepath.Join(ctx.OutputDir, "index.html")); err != nil {
 		log.Fatalf("Failed to build current page: %v", err)
 	}
 
-	// 2. Build history
-	if err := buildHistory(file); err != nil {
-		// Log error but don't fail the whole build?
-		// Or fail strictly? Let's fail strictly to be safe.
-		// Use specific error message to help debugging
+	if err := buildHistory(ctx); err != nil {
 		log.Printf("Warning: Failed to build history (is this a git repo?): %v", err)
 	}
 
 	fmt.Println("Build complete.")
 }
 
-func buildHistory(file string) error {
+func buildHistory(ctx *PlanContext) error {
 	fmt.Println("Building history...")
 
-	// Get history: Date -> CommitHash
-	history, err := getGitHistory(file)
+	history, err := getGitHistory(ctx.PlanDir, ctx.PlanFile)
 	if err != nil {
 		return err
 	}
@@ -159,56 +202,38 @@ func buildHistory(file string) error {
 	for d := range history {
 		dates = append(dates, d)
 	}
-	sort.Strings(dates) // Ascending order
-
-	// Reverse to have newest first for iteration if needed,
-	// but for "links" we probably want newest first.
-	// Let's sort descending.
+	sort.Strings(dates)
 	sort.Sort(sort.Reverse(sort.StringSlice(dates)))
 
-	// Store dates for index generation: Year -> Month -> [Days]
 	type dayEntry struct {
-		DateStr string // YYYY-MM-DD
+		DateStr string
 		Path    string
 	}
 	tree := make(map[string]map[string][]dayEntry)
 
 	for _, dateStr := range dates {
 		hash := history[dateStr]
-
-		// Parse date components
 		t, err := time.Parse("2006-01-02", dateStr)
 		if err != nil {
-			log.Printf("Skipping invalid date %s: %v", dateStr, err)
 			continue
 		}
 		year := t.Format("2006")
 		month := t.Format("01")
 		day := t.Format("02")
 
-		// Retrieve content
-		content, err := getGitContent(hash, file)
+		content, err := getGitContent(ctx.PlanDir, hash, ctx.PlanFile)
 		if err != nil {
-			log.Printf("Failed to get content for %s (%s): %v", dateStr, hash, err)
+			log.Printf("Failed to get content for %s: %v", dateStr, err)
 			continue
 		}
 
-		// Output path: public/YYYY/MM/DD/index.html
-		outDir := filepath.Join("public", year, month, day)
+		outDir := filepath.Join(ctx.OutputDir, year, month, day)
 		outPath := filepath.Join(outDir, "index.html")
 
-		if err := os.MkdirAll(outDir, 0755); err != nil {
+		if err := renderAndWrite(ctx, content, t, outPath); err != nil {
 			return err
 		}
 
-		// Render
-		// For historical posts, we use the commit date as the "modTime"
-		// And also as "created" time for display purposes.
-		if err := renderAndWrite(content, t, outPath); err != nil {
-			return err
-		}
-
-		// Add to tree
 		if tree[year] == nil {
 			tree[year] = make(map[string][]dayEntry)
 		}
@@ -218,16 +243,12 @@ func buildHistory(file string) error {
 		})
 	}
 
-	// Generate Index Pages
+	// Generate Indices
 	for year, months := range tree {
-		// 1. Year Index: public/YYYY/index.html
-		// Lists links to days (or months? Prompt says "links to any days")
-		// Let's list all days in the year.
 		var yearLinks []dayEntry
 		for _, mDays := range months {
 			yearLinks = append(yearLinks, mDays...)
 		}
-		// Sort yearLinks descending
 		sort.Slice(yearLinks, func(i, j int) bool {
 			return yearLinks[i].DateStr > yearLinks[j].DateStr
 		})
@@ -236,72 +257,57 @@ func buildHistory(file string) error {
 		for _, link := range yearLinks {
 			yearContent += fmt.Sprintf("- [%s](%s)\n", link.DateStr, link.Path)
 		}
-
-		yearPath := filepath.Join("public", year, "index.html")
-		if err := renderAndWrite([]byte(yearContent), time.Now(), yearPath); err != nil {
+		if err := renderAndWrite(ctx, []byte(yearContent), time.Now(), filepath.Join(ctx.OutputDir, year, "index.html")); err != nil {
 			return err
 		}
 
-		// 2. Month Indices: public/YYYY/MM/index.html
 		for month, days := range months {
-			// Sort days descending
 			sort.Slice(days, func(i, j int) bool {
 				return days[i].DateStr > days[j].DateStr
 			})
-
-			monthName := month // Could use time package to get "January", but "01" is safe
-			t, _ := time.Parse("01", month)
-			if !t.IsZero() {
+			monthName := month
+			if t, _ := time.Parse("01", month); !t.IsZero() {
 				monthName = t.Format("January")
 			}
-
 			monthContent := fmt.Sprintf("# History for %s %s\n\n", monthName, year)
 			for _, link := range days {
 				monthContent += fmt.Sprintf("- [%s](%s)\n", link.DateStr, link.Path)
 			}
-
-			monthPath := filepath.Join("public", year, month, "index.html")
-			if err := renderAndWrite([]byte(monthContent), time.Now(), monthPath); err != nil {
+			if err := renderAndWrite(ctx, []byte(monthContent), time.Now(), filepath.Join(ctx.OutputDir, year, month, "index.html")); err != nil {
 				return err
 			}
 		}
 	}
-
 	return nil
 }
 
-func renderAndWrite(content []byte, modTime time.Time, outPath string) error {
-	r := render.New()
+func renderAndWrite(ctx *PlanContext, content []byte, modTime time.Time, outPath string) error {
+	r := render.New(&ctx.Config, ctx.Template)
 
-	// Render body (Markdown -> HTML fragment)
 	body, err := r.RenderBody(content)
 	if err != nil {
 		return fmt.Errorf("rendering body: %w", err)
 	}
 
-	// Compose full HTML
 	html, err := r.Compose(body, modTime, modTime)
 	if err != nil {
 		return fmt.Errorf("composing html: %w", err)
 	}
 
-	// Ensure directory exists
 	dir := filepath.Dir(outPath)
 	if err := os.MkdirAll(dir, 0755); err != nil {
 		return fmt.Errorf("creating dir %s: %w", dir, err)
 	}
 
-	// Write file
 	if err := os.WriteFile(outPath, html, 0644); err != nil {
 		return fmt.Errorf("writing file %s: %w", outPath, err)
 	}
 	return nil
 }
 
-// getGitHistory returns a map of Date(YYYY-MM-DD) -> LatestCommitHash
-func getGitHistory(file string) (map[string]string, error) {
-	// git log --date=format:'%Y-%m-%d' --format="%H %ad" file
+func getGitHistory(dir, file string) (map[string]string, error) {
 	cmd := exec.Command("git", "log", "--date=format:%Y-%m-%d", "--format=%H %ad", file)
+	cmd.Dir = dir
 	out, err := cmd.Output()
 	if err != nil {
 		return nil, fmt.Errorf("git log failed: %w", err)
@@ -320,8 +326,6 @@ func getGitHistory(file string) (map[string]string, error) {
 		}
 		hash := parts[0]
 		date := parts[1]
-
-		// Since git log is descending, the first time we see a date, it is the latest for that date.
 		if _, exists := history[date]; !exists {
 			history[date] = hash
 		}
@@ -329,69 +333,71 @@ func getGitHistory(file string) (map[string]string, error) {
 	return history, nil
 }
 
-func getGitContent(hash, file string) ([]byte, error) {
-	// git show hash:file
-	// Note: file path in git show should be relative to repo root usually,
-	// but if we are in root, it's fine.
-	// git show hash:./file might work too.
-	// Using generic "git show hash:path"
+func getGitContent(dir, hash, file string) ([]byte, error) {
 	cmd := exec.Command("git", "show", fmt.Sprintf("%s:%s", hash, file))
+	cmd.Dir = dir
 	return cmd.Output()
 }
 
-func save(file string) {
-	fmt.Printf("Saving %s...\n", file)
+func runCmd(dir, name string, args ...string) error {
+	cmd := exec.Command(name, args...)
+	cmd.Dir = dir
+	cmd.Stdout = os.Stdout
+	cmd.Stderr = os.Stderr
+	return cmd.Run()
+}
 
-	if err := runCmd("git", "add", file); err != nil {
+func save(ctx *PlanContext) {
+	fmt.Printf("Saving %s...\n", ctx.PlanFile)
+	if err := runCmd(ctx.PlanDir, "git", "add", ctx.PlanFile); err != nil {
 		log.Fatalf("Failed to add file: %v", err)
 	}
-
-	// Commit
-	if err := runCmd("git", "commit", "-m", "Update plan"); err != nil {
+	if err := runCmd(ctx.PlanDir, "git", "commit", "-m", "Update plan"); err != nil {
 		fmt.Println("Nothing to commit or commit failed.")
 	} else {
 		fmt.Println("Changes committed.")
 	}
 }
 
-func publish(file string) {
-	save(file)
+func publish(ctx *PlanContext) {
+	save(ctx)
 	fmt.Println("Pushing to origin...")
-	if err := runCmd("git", "push"); err != nil {
+	if err := runCmd(ctx.PlanDir, "git", "push"); err != nil {
 		log.Fatalf("Failed to push: %v", err)
 	}
 	fmt.Println("Successfully pushed to origin.")
 }
 
-func revert(file string) {
-	fmt.Printf("Reverting %s...\n", file)
-	if err := runCmd("git", "checkout", file); err != nil {
+func revert(ctx *PlanContext) {
+	fmt.Printf("Reverting %s...\n", ctx.PlanFile)
+	if err := runCmd(ctx.PlanDir, "git", "checkout", ctx.PlanFile); err != nil {
 		log.Fatalf("Failed to revert: %v", err)
 	}
 	fmt.Println("Local changes discarded.")
 }
 
-func rollback(file, commit string) {
+func rollback(ctx *PlanContext, commit string) {
 	target := commit
 	if target == "" {
 		target = "HEAD~1"
 	}
-	fmt.Printf("Rolling back %s to version %s...\n", file, target)
-	if err := runCmd("git", "checkout", target, "--", file); err != nil {
+	fmt.Printf("Rolling back %s to version %s...\n", ctx.PlanFile, target)
+	if err := runCmd(ctx.PlanDir, "git", "checkout", target, "--", ctx.PlanFile); err != nil {
 		log.Fatalf("Failed to checkout version %s: %v", target, err)
 	}
 	fmt.Println("Committing rollback...")
-	if err := runCmd("git", "commit", "-m", fmt.Sprintf("Rollback %s to %s", file, target)); err != nil {
+	if err := runCmd(ctx.PlanDir, "git", "commit", "-m", fmt.Sprintf("Rollback %s to %s", ctx.PlanFile, target)); err != nil {
 		log.Fatalf("Failed to commit rollback: %v", err)
 	}
 	fmt.Println("Pushing to origin...")
-	if err := runCmd("git", "push"); err != nil {
+	if err := runCmd(ctx.PlanDir, "git", "push"); err != nil {
 		log.Fatalf("Failed to push: %v", err)
 	}
 	fmt.Println("Rolled back and pushed.")
 }
 
-func edit(file string) {
+func edit(ctx *PlanContext) {
+	file := filepath.Join(ctx.PlanDir, ctx.PlanFile)
 	editor := os.Getenv("EDITOR")
 	if editor == "" {
 		editor = os.Getenv("VISUAL")
@@ -412,7 +418,7 @@ func edit(file string) {
 	if runtime.GOOS == "darwin" && editor == "open -t" {
 		cmd = exec.Command("open", "-t", file)
 	} else if runtime.GOOS != "windows" {
-		cmd = exec.Command("sh", "-c", editor+" \"$1\"", "editor_wrapper", file)
+		cmd = exec.Command("sh", "-c", editor+" \"\"", "editor_wrapper", file)
 	} else {
 		cmd = exec.Command(editor, file)
 	}
@@ -441,9 +447,3 @@ func openBrowser(url string) {
 	}
 }
 
-func runCmd(name string, args ...string) error {
-	cmd := exec.Command(name, args...)
-	cmd.Stdout = os.Stdout
-	cmd.Stderr = os.Stderr
-	return cmd.Run()
-}

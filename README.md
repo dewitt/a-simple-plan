@@ -1,64 +1,67 @@
-# Single-Post Blogging Platform
+# A Simple Plan (Builder)
 
-This project is an incredibly efficient and streamlined single-author blogging platform. It generates a static HTML site from a single Markdown file (`plan.md`), designed for hosting on Cloudflare Pages.
+This is the builder application for "A Simple Plan" blog. It is designed to work with a separate "Plan Data" repository.
 
-## Authoring
-Authors simply write their content in Markdown format to a file named `plan.md` in the project root. After saving, the updated content is immediately available on the web.
+## Installation
 
-## Design Philosophy
-The platform is designed for optimal performance, minimizing rendering latency to achieve near-instant page loads. The site is pre-rendered to static HTML and served via a global CDN.
-
-## Getting Started
-
-### Prerequisites
-- Go 1.25+ installed.
-
-### Installation
-1. Clone the repository:
-   ```bash
-   git clone https://github.com/dewitt/a-simple-plan.git
-   cd a-simple-plan
-   ```
-2. Build the CLI tool:
-   ```bash
-   go build -o plan ./cmd/plan
-   ```
-
-### Usage
-
-#### Writing
-Edit `plan.md` with your favorite text editor.
-
-#### Previewing
-To see how your plan will look locally:
 ```bash
-./plan preview
-```
-This will build the static site, start a local server, and open your browser.
-
-#### Building (Manual)
-To generate the static site in the `public/` directory without previewing:
-```bash
-./plan build
+git clone git@github.com:dewitt/a-simple-plan.git
+cd a-simple-plan
+go install ./cmd/plan
 ```
 
-#### Publishing
-To publish your changes (commit and push to GitHub):
+## Usage
+
+Run the `plan` command, pointing it to your plan repository or specific plan file.
+
 ```bash
-./plan publish
+plan build -f /path/to/your/plan-repo/plan.md
 ```
-This triggers a deployment on Cloudflare Pages.
 
-## Cloudflare Pages Setup
-1.  Connect your GitHub repository to Cloudflare Pages.
-2.  Set the **Build command** to: `go run ./cmd/plan build`
-3.  Set the **Build output directory** to: `public`
-4.  (Optional) Set Environment Variable `GO_VERSION` to `1.25.1`.
+If you are inside your plan repo:
 
-## Project Structure
-- `DESIGN.md`: Detailed design decisions and architectural overview.
-- `TODO.md`: List of outstanding tasks and development progress.
-- `README.md`: Project introduction and usage instructions.
-- `plan.md`: The single blog plan content (Markdown format).
-- `cmd/plan/main.go`: The authoring and building CLI tool.
-- `internal/render/`: Shared rendering logic (Markdown -> HTML).
+```bash
+plan build
+```
+
+## Commands
+
+*   `preview`: Build and serve locally.
+*   `build`: Generate static HTML.
+*   `save`: Commit local changes (in the plan repo).
+*   `publish`: Commit and push to origin (in the plan repo).
+*   `revert`: Discard local changes.
+*   `rollback`: Revert to a previous version.
+*   `edit`: Open the plan file in your editor.
+
+## Plan Repository Structure
+
+Your plan repository should look like this:
+
+```
+my-plan-repo/
+├── plan.md          (Required) The content of your plan.
+├── settings.json    (Optional) Configuration for your site.
+└── template.html    (Optional) Custom HTML template.
+```
+
+### settings.json
+
+```json
+{
+  "username": "yourusername",
+  "name": "Your Full Name",
+  "directory": "/home/yourname",
+  "shell": "/bin/zsh",
+  "timezone": "America/New_York",
+  "title": "My Plan"
+}
+```
+
+### template.html
+
+If you provide a custom template, use the following placeholders:
+*   `{{content}}`: The rendered markdown content.
+*   `{{onSince}}`: Creation date string.
+*   `{{modTimeUnix}}`: Modification timestamp.
+*   `{{username}}`, `{{fullname}}`, `{{directory}}`, `{{shell}}`, `{{title}}`: From settings.

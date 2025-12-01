@@ -1,11 +1,12 @@
 <!DOCTYPE html>
 <html lang="en">
 <head>
-    <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Blog Post</title>
-    <style>
-        /* Mid-90s Workstation Aesthetic */
+        <meta charset="UTF-8">                                                                                                   
+        <meta name="viewport" content="width=device-width, initial-scale=1.0">                                                   
+        <title>{{title}}</title>                                                                                                 
+        <style>                                                                                                                  
+            /* Mid-90s Workstation Aesthetic */
+    
         :root {
             /* Default: xterm / cmdtool (White bg, Black text) */
             --bg-color: #ffffff;
@@ -120,15 +121,27 @@
         .chroma .kt, .chroma .nc, .chroma .no, .chroma .nd { color: var(--code-type); }
         .chroma .m, .chroma .mb, .chroma .mf, .chroma .mh, .chroma .mi, .chroma .il, .chroma .mo { color: var(--code-literal); }
 
-    </style>
-</head>
-<body>
-<div class="finger-header">Login: dewitt                            Name: DeWitt Clinton
-Directory: /home/dewitt                  Shell: /bin/zsh
-On since {{onSince}} on ttys000, idle <span id="idle-time" data-timestamp="{{modTimeUnix}}"></span>
-Plan:</div>
-{{content}}
-<script>
+        </style>                                                                                                                 
+
+    </head>                                                                                                                      
+
+    <body>                                                                                                                       
+
+    <div class="finger-header">Login: {{username}}                            Name: {{fullname}}                                     
+
+    Directory: {{directory}}                  Shell: {{shell}}                                                                     
+
+    On since {{onSince}} on ttys000, idle <span id="idle-time" data-timestamp="{{modTimeUnix}}"></span>                    
+
+    {{title}}:</div>                                                                                                                  
+
+    {{content}}                                                                                                                        
+
+                                                                                                                                 
+
+    <script>
+
+    
     function updateIdleTime() {
         const idleSpan = document.getElementById('idle-time');
         if (!idleSpan) return;
