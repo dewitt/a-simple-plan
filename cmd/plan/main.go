@@ -7,7 +7,10 @@ import (
 	"net/http"
 	"os"
 	"os/exec"
+	"path/filepath"
 	"runtime"
+	"sort"
+	"strings"
 	"time"
 
 	"github.com/dewitt/dewitt-blog/internal/render"
@@ -34,68 +37,43 @@ func main() {
 		flag.PrintDefaults()
 	}
 
-	// Parse flags before commands
-	// Note: standard flag package expects flags before non-flag arguments.
-	// e.g., `plan -f myplan.md preview`
-	// To support `plan preview -f myplan.md`, we'd need to parse manually or use a sub-command library.
-	// For simplicity/standard Go, let's assume `plan [flags] command`.
-	// However, a common UX expectation is `plan command [flags]`.
-	// Let's try to support `plan command [flags]` by parsing flags *after* the command if possible,
-	// or better, defining subcommands.
-
 	if len(os.Args) < 2 {
 		flag.Usage()
 		os.Exit(1)
 	}
 
-	// Simple subcommand parsing
 	cmd := os.Args[1]
-
-	// Create a FlagSet for each command if we want command-specific flags,
-	// or just use global flags if they apply to all.
-	// Since the user asked for a flag to override the post being previewed OR published,
-	// it applies to both.
-
-	// Let's handle the case where the user might type `plan preview -f foo.md`
-	// We can shift os.Args if the first arg is a known command.
 
 	switch cmd {
 	case "preview":
-		// Parse flags from args[2:]
 		if err := flag.CommandLine.Parse(os.Args[2:]); err != nil {
 			os.Exit(1)
 		}
 		preview(planFile)
 	case "build":
-		// Parse flags from args[2:]
 		if err := flag.CommandLine.Parse(os.Args[2:]); err != nil {
 			os.Exit(1)
 		}
 		build(planFile)
 	case "save":
-		// Parse flags from args[2:]
 		if err := flag.CommandLine.Parse(os.Args[2:]); err != nil {
 			os.Exit(1)
 		}
 		save(planFile)
 	case "publish":
-		// Parse flags from args[2:]
 		if err := flag.CommandLine.Parse(os.Args[2:]); err != nil {
 			os.Exit(1)
 		}
 		publish(planFile)
 	case "revert":
-		// Parse flags from args[2:]
 		if err := flag.CommandLine.Parse(os.Args[2:]); err != nil {
 			os.Exit(1)
 		}
 		revert(planFile)
 	case "rollback":
-		// Parse flags from args[2:]
 		if err := flag.CommandLine.Parse(os.Args[2:]); err != nil {
 			os.Exit(1)
 		}
-		// Check for optional commit hash argument
 		args := flag.CommandLine.Args()
 		commit := ""
 		if len(args) > 0 {
@@ -103,7 +81,6 @@ func main() {
 		}
 		rollback(planFile, commit)
 	case "edit":
-		// Parse flags from args[2:]
 		if err := flag.CommandLine.Parse(os.Args[2:]); err != nil {
 			os.Exit(1)
 		}
@@ -111,13 +88,7 @@ func main() {
 	case "-h", "--help":
 		flag.Usage()
 	default:
-		// Check if the first arg is actually a flag (starts with -)
 		if cmd[0] == '-' {
-			// It's a flag, presumably before the command? Or no command provided?
-			// If they ran `plan -f foo.md preview`, flag.Parse() would handle it
-			// if we called it globally. But we want to support `plan preview`.
-
-			// Let's stick to the robust subcommand pattern.
 			fmt.Printf("Unknown command or invalid usage: %s\n", cmd)
 			flag.Usage()
 			os.Exit(1)
@@ -129,9 +100,7 @@ func main() {
 }
 
 func preview(file string) {
-	port := "8081" // Use a different default port for preview to avoid conflict
-
-	// Ensure the static site is built before previewing
+	port := "8081"
 	build(file)
 
 	fs := http.FileServer(http.Dir("public"))
@@ -139,9 +108,7 @@ func preview(file string) {
 
 	fmt.Printf("Starting preview server for static content at http://localhost:%s/index.html\n", port)
 
-	// Launch browser in a goroutine
 	go func() {
-		// Give the server a moment to start
 		time.Sleep(500 * time.Millisecond)
 		openBrowser("http://localhost:" + port + "/index.html")
 	}()
@@ -152,42 +119,224 @@ func preview(file string) {
 }
 
 func build(file string) {
-	fmt.Printf("Building %s to public/index.html...\n", file)
+	fmt.Printf("Building %s...\n", file)
 
-	// 1. Read file
+	// 1. Build current version
 	content, err := os.ReadFile(file)
 	if err != nil {
 		log.Fatalf("Failed to read file: %v", err)
 	}
-
-	// 2. Get stats
 	info, err := os.Stat(file)
 	if err != nil {
 		log.Fatalf("Failed to stat file: %v", err)
 	}
-	modTime := info.ModTime()
 
-	// 3. Render
-	r := render.New()
-	body, err := r.RenderBody(content)
-	if err != nil {
-		log.Fatalf("Failed to render body: %v", err)
+	if err := renderAndWrite(content, info.ModTime(), "public/index.html"); err != nil {
+		log.Fatalf("Failed to build current page: %v", err)
 	}
 
-	html, err := r.Compose(body, modTime, modTime)
-	if err != nil {
-		log.Fatalf("Failed to compose HTML: %v", err)
-	}
-
-	// 4. Write
-	if err := os.MkdirAll("public", 0755); err != nil {
-		log.Fatalf("Failed to create public dir: %v", err)
-	}
-	if err := os.WriteFile("public/index.html", html, 0644); err != nil {
-		log.Fatalf("Failed to write HTML: %v", err)
+	// 2. Build history
+	if err := buildHistory(file); err != nil {
+		// Log error but don't fail the whole build?
+		// Or fail strictly? Let's fail strictly to be safe.
+		// Use specific error message to help debugging
+		log.Printf("Warning: Failed to build history (is this a git repo?): %v", err)
 	}
 
 	fmt.Println("Build complete.")
+}
+
+func buildHistory(file string) error {
+	fmt.Println("Building history...")
+
+	// Get history: Date -> CommitHash
+	history, err := getGitHistory(file)
+	if err != nil {
+		return err
+	}
+
+	var dates []string
+	for d := range history {
+		dates = append(dates, d)
+	}
+	sort.Strings(dates) // Ascending order
+
+	// Reverse to have newest first for iteration if needed,
+	// but for "links" we probably want newest first.
+	// Let's sort descending.
+	sort.Sort(sort.Reverse(sort.StringSlice(dates)))
+
+	// Store dates for index generation: Year -> Month -> [Days]
+	type dayEntry struct {
+		DateStr string // YYYY-MM-DD
+		Path    string
+	}
+	tree := make(map[string]map[string][]dayEntry)
+
+	for _, dateStr := range dates {
+		hash := history[dateStr]
+
+		// Parse date components
+		t, err := time.Parse("2006-01-02", dateStr)
+		if err != nil {
+			log.Printf("Skipping invalid date %s: %v", dateStr, err)
+			continue
+		}
+		year := t.Format("2006")
+		month := t.Format("01")
+		day := t.Format("02")
+
+		// Retrieve content
+		content, err := getGitContent(hash, file)
+		if err != nil {
+			log.Printf("Failed to get content for %s (%s): %v", dateStr, hash, err)
+			continue
+		}
+
+		// Output path: public/YYYY/MM/DD/index.html
+		outDir := filepath.Join("public", year, month, day)
+		outPath := filepath.Join(outDir, "index.html")
+
+		if err := os.MkdirAll(outDir, 0755); err != nil {
+			return err
+		}
+
+		// Render
+		// For historical posts, we use the commit date as the "modTime"
+		// And also as "created" time for display purposes.
+		if err := renderAndWrite(content, t, outPath); err != nil {
+			return err
+		}
+
+		// Add to tree
+		if tree[year] == nil {
+			tree[year] = make(map[string][]dayEntry)
+		}
+		tree[year][month] = append(tree[year][month], dayEntry{
+			DateStr: dateStr,
+			Path:    fmt.Sprintf("/%s/%s/%s", year, month, day),
+		})
+	}
+
+	// Generate Index Pages
+	for year, months := range tree {
+		// 1. Year Index: public/YYYY/index.html
+		// Lists links to days (or months? Prompt says "links to any days")
+		// Let's list all days in the year.
+		var yearLinks []dayEntry
+		for _, mDays := range months {
+			yearLinks = append(yearLinks, mDays...)
+		}
+		// Sort yearLinks descending
+		sort.Slice(yearLinks, func(i, j int) bool {
+			return yearLinks[i].DateStr > yearLinks[j].DateStr
+		})
+
+		yearContent := fmt.Sprintf("# History for %s\n\n", year)
+		for _, link := range yearLinks {
+			yearContent += fmt.Sprintf("- [%s](%s)\n", link.DateStr, link.Path)
+		}
+
+		yearPath := filepath.Join("public", year, "index.html")
+		if err := renderAndWrite([]byte(yearContent), time.Now(), yearPath); err != nil {
+			return err
+		}
+
+		// 2. Month Indices: public/YYYY/MM/index.html
+		for month, days := range months {
+			// Sort days descending
+			sort.Slice(days, func(i, j int) bool {
+				return days[i].DateStr > days[j].DateStr
+			})
+
+			monthName := month // Could use time package to get "January", but "01" is safe
+			t, _ := time.Parse("01", month)
+			if !t.IsZero() {
+				monthName = t.Format("January")
+			}
+
+			monthContent := fmt.Sprintf("# History for %s %s\n\n", monthName, year)
+			for _, link := range days {
+				monthContent += fmt.Sprintf("- [%s](%s)\n", link.DateStr, link.Path)
+			}
+
+			monthPath := filepath.Join("public", year, month, "index.html")
+			if err := renderAndWrite([]byte(monthContent), time.Now(), monthPath); err != nil {
+				return err
+			}
+		}
+	}
+
+	return nil
+}
+
+func renderAndWrite(content []byte, modTime time.Time, outPath string) error {
+	r := render.New()
+
+	// Render body (Markdown -> HTML fragment)
+	body, err := r.RenderBody(content)
+	if err != nil {
+		return fmt.Errorf("rendering body: %w", err)
+	}
+
+	// Compose full HTML
+	html, err := r.Compose(body, modTime, modTime)
+	if err != nil {
+		return fmt.Errorf("composing html: %w", err)
+	}
+
+	// Ensure directory exists
+	dir := filepath.Dir(outPath)
+	if err := os.MkdirAll(dir, 0755); err != nil {
+		return fmt.Errorf("creating dir %s: %w", dir, err)
+	}
+
+	// Write file
+	if err := os.WriteFile(outPath, html, 0644); err != nil {
+		return fmt.Errorf("writing file %s: %w", outPath, err)
+	}
+	return nil
+}
+
+// getGitHistory returns a map of Date(YYYY-MM-DD) -> LatestCommitHash
+func getGitHistory(file string) (map[string]string, error) {
+	// git log --date=format:'%Y-%m-%d' --format="%H %ad" file
+	cmd := exec.Command("git", "log", "--date=format:%Y-%m-%d", "--format=%H %ad", file)
+	out, err := cmd.Output()
+	if err != nil {
+		return nil, fmt.Errorf("git log failed: %w", err)
+	}
+
+	history := make(map[string]string)
+	lines := strings.Split(string(out), "\n")
+	for _, line := range lines {
+		line = strings.TrimSpace(line)
+		if line == "" {
+			continue
+		}
+		parts := strings.SplitN(line, " ", 2)
+		if len(parts) != 2 {
+			continue
+		}
+		hash := parts[0]
+		date := parts[1]
+
+		// Since git log is descending, the first time we see a date, it is the latest for that date.
+		if _, exists := history[date]; !exists {
+			history[date] = hash
+		}
+	}
+	return history, nil
+}
+
+func getGitContent(hash, file string) ([]byte, error) {
+	// git show hash:file
+	// Note: file path in git show should be relative to repo root usually,
+	// but if we are in root, it's fine.
+	// git show hash:./file might work too.
+	// Using generic "git show hash:path"
+	cmd := exec.Command("git", "show", fmt.Sprintf("%s:%s", hash, file))
+	return cmd.Output()
 }
 
 func save(file string) {
@@ -197,30 +346,25 @@ func save(file string) {
 		log.Fatalf("Failed to add file: %v", err)
 	}
 
-	// Commit. If no changes, this might fail, which is okay-ish, but let's handle it.
+	// Commit
 	if err := runCmd("git", "commit", "-m", "Update plan"); err != nil {
-		fmt.Println("Nothing to commit or commit failed (maybe no changes?).")
+		fmt.Println("Nothing to commit or commit failed.")
 	} else {
 		fmt.Println("Changes committed.")
 	}
 }
 
 func publish(file string) {
-	// 1. Save (Commit)
 	save(file)
-
-	// 2. Push to git
 	fmt.Println("Pushing to origin...")
 	if err := runCmd("git", "push"); err != nil {
 		log.Fatalf("Failed to push: %v", err)
 	}
-
-	fmt.Println("Successfully pushed to origin. Cloudflare Pages deployment should trigger shortly.")
+	fmt.Println("Successfully pushed to origin.")
 }
 
 func revert(file string) {
 	fmt.Printf("Reverting %s...\n", file)
-	// Use git checkout to discard changes to the file
 	if err := runCmd("git", "checkout", file); err != nil {
 		log.Fatalf("Failed to revert: %v", err)
 	}
@@ -232,28 +376,19 @@ func rollback(file, commit string) {
 	if target == "" {
 		target = "HEAD~1"
 	}
-
 	fmt.Printf("Rolling back %s to version %s...\n", file, target)
-
-	// 1. Checkout specified version
-	// Note: We use '--' to disambiguate file from branch/ref
 	if err := runCmd("git", "checkout", target, "--", file); err != nil {
 		log.Fatalf("Failed to checkout version %s: %v", target, err)
 	}
-
-	// 2. Commit the rollback
 	fmt.Println("Committing rollback...")
 	if err := runCmd("git", "commit", "-m", fmt.Sprintf("Rollback %s to %s", file, target)); err != nil {
 		log.Fatalf("Failed to commit rollback: %v", err)
 	}
-
-	// 3. Push to trigger deployment
 	fmt.Println("Pushing to origin...")
 	if err := runCmd("git", "push"); err != nil {
 		log.Fatalf("Failed to push: %v", err)
 	}
-
-	fmt.Println("Successfully rolled back and triggered deployment.")
+	fmt.Println("Rolled back and pushed.")
 }
 
 func edit(file string) {
@@ -261,35 +396,29 @@ func edit(file string) {
 	if editor == "" {
 		editor = os.Getenv("VISUAL")
 	}
-
 	if editor == "" {
 		switch runtime.GOOS {
 		case "windows":
 			editor = "notepad"
 		case "darwin":
-			editor = "open -t" // 'open -t' opens with default text editor on macOS
-		default: // Linux and others
+			editor = "open -t"
+		default:
 			editor = "vi"
 		}
 	}
-
 	fmt.Printf("Opening %s with %s...\n", file, editor)
 
 	var cmd *exec.Cmd
 	if runtime.GOOS == "darwin" && editor == "open -t" {
 		cmd = exec.Command("open", "-t", file)
 	} else if runtime.GOOS != "windows" {
-		// Use sh -c to handle complex EDITOR strings (e.g., "emacsclient -t -a \"\"")
-		// We pass the editor command string as a script, and the file as $1
 		cmd = exec.Command("sh", "-c", editor+" \"$1\"", "editor_wrapper", file)
 	} else {
 		cmd = exec.Command(editor, file)
 	}
-
 	cmd.Stdin = os.Stdin
 	cmd.Stdout = os.Stdout
 	cmd.Stderr = os.Stderr
-
 	if err := cmd.Run(); err != nil {
 		log.Fatalf("Failed to open editor: %v", err)
 	}
