@@ -86,6 +86,27 @@ Create a `template.html` in your plan directory to override the default design.
 *   `{{modTimeUnix}}`: The modification timestamp (for JavaScript).
 *   `{{username}}`, `{{fullname}}`, `{{directory}}`, `{{shell}}`, `{{title}}`: Values from your settings.
 
+## Deployment with Cloudflare Pages
+
+To deploy your `dewitt-plan` content using Cloudflare Pages, follow these steps:
+
+1.  **Make `a-simple-plan` (this repository) Public**: Cloudflare Pages needs to access the builder to run the build command. Go to your GitHub repository settings for `a-simple-plan` and ensure its visibility is set to `Public`.
+
+2.  **Connect `dewitt-plan` to Cloudflare Pages**: In your Cloudflare Dashboard, go to "Pages" and connect your `dewitt-plan` GitHub repository as a new project.
+
+3.  **Configure Build Settings**: In the Cloudflare Pages project settings for `dewitt-plan` (under "Settings" -> "Build & deployments"), update the following:
+    *   **Build command**: 
+        ```bash
+        git clone https://github.com/dewitt/a-simple-plan.git ../builder && cd ../builder && go install ./cmd/plan && cd $CF_PAGES_REPO_PATH && ~/go/bin/plan build
+        ```
+    *   **Build output directory**: `public`
+    *   **Root directory**: `/` (Leave as default)
+
+4.  **Environment Variables (Optional but Recommended)**:
+    *   Ensure `GO_VERSION` is set to `1.22` or a newer version (e.g., `1.22`). This ensures Cloudflare uses a compatible Go version for building the `plan` tool.
+
+Now, every time you `git push` changes to your `dewitt-plan` repository, Cloudflare Pages will automatically fetch the latest builder, build your site, and deploy it.
+
 ## How it Works
 
 1.  **Current State**: The builder renders your current `plan.md` to `public/index.html`.
