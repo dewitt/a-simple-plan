@@ -422,11 +422,16 @@ func edit(ctx *PlanContext) {
 	var cmd *exec.Cmd
 	if runtime.GOOS == "darwin" && editor == "open -t" {
 		cmd = exec.Command("open", "-t", file)
-	} else if runtime.GOOS != "windows" {
-		cmd = exec.Command("sh", "-c", editor+" \"\"", "editor_wrapper", file)
-	} else {
+	} else if runtime.GOOS == "windows" {
 		cmd = exec.Command(editor, file)
+	} else {
+		// Use shell to execute the editor command string, handling args and quotes
+		// e.g. EDITOR='emacsclient -t -a ""' -> sh -c 'emacsclient -t -a "" "/path/to/file"'
+		// We quote the filename to handle spaces in paths
+		fullCmd := fmt.Sprintf("%s %q", editor, file)
+		cmd = exec.Command("sh", "-c", fullCmd)
 	}
+	
 	cmd.Stdin = os.Stdin
 	cmd.Stdout = os.Stdout
 	cmd.Stderr = os.Stderr
