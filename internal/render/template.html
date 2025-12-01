@@ -1,19 +1,19 @@
 <!DOCTYPE html>
 <html lang="en">
 <head>
-        <meta charset="UTF-8">                                                                                                   
-        <meta name="viewport" content="width=device-width, initial-scale=1.0">                                                   
-        <title>{{title}}</title>                                                                                                 
-        <style>                                                                                                                  
+        <meta charset="UTF-8">
+        <meta name="viewport" content="width=device-width, initial-scale=1.0">
+        <title>{{directory}}</title>
+        <style>
             /* Mid-90s Workstation Aesthetic */
-    
+
         :root {
             /* Default: xterm / cmdtool (White bg, Black text) */
             --bg-color: #ffffff;
             --text-color: #000000;
             --link-color: #0000ee;
             --meta-color: #555555;
-            
+
             /* Syntax Highlighting (High contrast, standard editor colors) */
             --code-keyword: #0000aa;
             --code-string: #008800;
@@ -51,7 +51,7 @@
         }
 
         /* Flatten heading hierarchy to mimic plain text */
-        h1, h2, h3, h4, h5, h6 { 
+        h1, h2, h3, h4, h5, h6 {
             font-size: 1rem;
             font-weight: bold;
             text-transform: uppercase;
@@ -62,8 +62,8 @@
         }
 
         /* Links: simple underline, no hover effects beyond cursor */
-        a { 
-            color: var(--link-color); 
+        a {
+            color: var(--link-color);
             text-decoration: underline;
         }
         a:hover {
@@ -73,24 +73,24 @@
         }
 
         /* Code blocks: Indented, no border, simple background */
-        pre { 
+        pre {
             font-family: inherit;
             font-size: inherit;
             margin: 1rem 0;
             padding: 0 0 0 2ch; /* Indent like a tab */
-            overflow-x: auto; 
+            overflow-x: auto;
             background-color: transparent;
             border: none;
         }
-        code { 
-            font-family: inherit; 
+        code {
+            font-family: inherit;
             color: inherit;
         }
 
         /* Quotes: Indented */
-        blockquote { 
-            margin: 1rem 0; 
-            padding-left: 2ch; 
+        blockquote {
+            margin: 1rem 0;
+            padding-left: 2ch;
             border-left: none;
             color: var(--text-color);
         }
@@ -99,9 +99,9 @@
         ul, ol { margin: 1rem 0; padding-left: 2ch; }
 
         /* Images: Simple, no border */
-        img { 
-            max-width: 100%; 
-            height: auto; 
+        img {
+            max-width: 100%;
+            height: auto;
             border: none;
         }
 
@@ -113,7 +113,7 @@
             border-bottom: 1px dashed var(--meta-color);
             color: var(--text-color);
         }
-        
+
         /* Syntax Highlighting Classes */
         .chroma .k, .chroma .kd, .chroma .kn, .chroma .kp, .chroma .kr, .chroma .kt { color: var(--code-keyword); font-weight: bold; }
         .chroma .s, .chroma .sa, .chroma .sb, .chroma .sc, .chroma .dl, .chroma .sd, .chroma .s2, .chroma .se, .chroma .sh, .chroma .si, .chroma .sx, .chroma .sr, .chroma .s1, .chroma .ss { color: var(--code-string); }
@@ -121,27 +121,24 @@
         .chroma .kt, .chroma .nc, .chroma .no, .chroma .nd { color: var(--code-type); }
         .chroma .m, .chroma .mb, .chroma .mf, .chroma .mh, .chroma .mi, .chroma .il, .chroma .mo { color: var(--code-literal); }
 
-        </style>                                                                                                                 
+        </style>
 
-    </head>                                                                                                                      
+    </head>
 
-    <body>                                                                                                                       
+    <body>
 
-    <div class="finger-header">Login: {{username}}                            Name: {{fullname}}                                     
+    <div class="finger-header">Login: {{username}}                            Name: {{fullname}}
+Directory: {{directory}}                  Shell: {{shell}}
+On since {{onSince}} on ttys000, idle <span id="idle-time" data-timestamp="{{modTimeUnix}}"></span>
+{{title}}:</div>
 
-    Directory: {{directory}}                  Shell: {{shell}}                                                                     
+{{content}}
 
-    On since {{onSince}} on ttys000, idle <span id="idle-time" data-timestamp="{{modTimeUnix}}"></span>                    
 
-    {{title}}:</div>                                                                                                                  
-
-    {{content}}                                                                                                                        
-
-                                                                                                                                 
 
     <script>
 
-    
+
     function updateIdleTime() {
         const idleSpan = document.getElementById('idle-time');
         if (!idleSpan) return;
