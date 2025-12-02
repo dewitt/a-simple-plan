@@ -1,6 +1,7 @@
 package main
 
 import (
+	"encoding/xml"
 	"flag"
 	"fmt"
 	"log"
@@ -23,6 +24,28 @@ type PlanContext struct {
 	OutputDir string
 	Config    config.Config
 	Template  string // Custom template content
+}
+
+type Rss struct {
+	XMLName xml.Name `xml:"rss"`
+	Version string   `xml:"version,attr"`
+	Channel Channel  `xml:"channel"`
+}
+
+type Channel struct {
+	Title       string `xml:"title"`
+	Link        string `xml:"link"`
+	Description string `xml:"description"`
+	Items       []Item `xml:"item"`
+}
+
+type Item struct {
+	Title       string `xml:"title"`
+	Link        string `xml:"link"`
+	Description string `xml:"description"`
+	Content     string `xml:"content:encoded"`
+	PubDate     string `xml:"pubDate"`
+	Guid        string `xml:"guid"`
 }
 
 func main() {
@@ -185,8 +208,56 @@ func build(ctx *PlanContext) {
 		log.Fatalf("Failed to build current page: %v", err)
 	}
 
-	if err := buildHistory(ctx); err != nil {
+	// Prepare RSS items
+	var rssItems []Item
+
+	// Add current post
+	r := render.New(&ctx.Config, ctx.Template)
+	bodyBytes, err := r.RenderBody(content)
+	if err == nil {
+		link := ctx.Config.BaseURL + "/"
+		item := Item{
+			Title:       ctx.Config.Title,
+			Link:        link,
+			Description: string(bodyBytes),
+			Content:     string(bodyBytes),
+			PubDate:     info.ModTime().Format(time.RFC1123Z),
+			Guid:        link,
+		}
+		rssItems = append(rssItems, item)
+	} else {
+		log.Printf("Warning: Failed to render current content for RSS: %v", err)
+	}
+
+	historyItems, err := buildHistory(ctx)
+	if err != nil {
 		log.Printf("Warning: Failed to build history (is this a git repo?): %v", err)
+	}
+	rssItems = append(rssItems, historyItems...)
+
+	// Generate RSS Feed
+	rss := Rss{
+		Version: "2.0",
+		Channel: Channel{
+			Title:       ctx.Config.Title,
+			Link:        ctx.Config.BaseURL,
+			Description: fmt.Sprintf("Updates for %s", ctx.Config.Title),
+			Items:       rssItems,
+		},
+	}
+
+	rssFile := filepath.Join(ctx.OutputDir, "rss.xml")
+	f, err := os.Create(rssFile)
+	if err != nil {
+		log.Fatalf("Failed to create RSS file: %v", err)
+	}
+	defer f.Close()
+
+	f.WriteString(xml.Header)
+	enc := xml.NewEncoder(f)
+	enc.Indent("", "  ")
+	if err := enc.Encode(rss); err != nil {
+		log.Fatalf("Failed to encode RSS: %v", err)
 	}
 
 	fmt.Println("Build complete.")
@@ -195,12 +266,12 @@ func build(ctx *PlanContext) {
 // buildHistory reconstructs the past versions of the plan file using git history.
 // It iterates through unique dates in the git log, retrieves the file content for that date,
 // and generates static pages for each day, as well as year and month index pages.
-func buildHistory(ctx *PlanContext) error {
+func buildHistory(ctx *PlanContext) ([]Item, error) {
 	fmt.Println("Building history...")
 
 	history, err := getGitHistory(ctx.PlanDir, ctx.PlanFile)
 	if err != nil {
-		return err
+		return nil, err
 	}
 
 	var dates []string
@@ -215,6 +286,10 @@ func buildHistory(ctx *PlanContext) error {
 		Path    string
 	}
 	tree := make(map[string]map[string][]dayEntry)
+	var rssItems []Item
+
+	// Reuse renderer if config doesn't change per file
+	r := render.New(&ctx.Config, ctx.Template)
 
 	for _, dateStr := range dates {
 		hash := history[dateStr]
@@ -236,7 +311,26 @@ func buildHistory(ctx *PlanContext) error {
 		outPath := filepath.Join(outDir, "index.html")
 
 		if err := renderAndWrite(ctx, content, t, outPath); err != nil {
-			return err
+			return nil, err
+		}
+
+		// Add to RSS
+		relPath := fmt.Sprintf("/%s/%s/%s", year, month, day)
+		link := ctx.Config.BaseURL + relPath
+
+		// We need the body content. renderAndWrite does it but doesn't return it.
+		// We'll just re-render body here.
+		bodyBytes, err := r.RenderBody(content)
+		if err == nil {
+			item := Item{
+				Title:       dateStr,
+				Link:        link,
+				Description: string(bodyBytes),
+				Content:     string(bodyBytes),
+				PubDate:     t.Format(time.RFC1123Z),
+				Guid:        link,
+			}
+			rssItems = append(rssItems, item)
 		}
 
 		if tree[year] == nil {
@@ -244,7 +338,7 @@ func buildHistory(ctx *PlanContext) error {
 		}
 		tree[year][month] = append(tree[year][month], dayEntry{
 			DateStr: dateStr,
-			Path:    fmt.Sprintf("/%s/%s/%s", year, month, day),
+			Path:    relPath,
 		})
 	}
 
@@ -263,7 +357,7 @@ func buildHistory(ctx *PlanContext) error {
 			yearContent += fmt.Sprintf("- [%s](%s)\n", link.DateStr, link.Path)
 		}
 		if err := renderAndWrite(ctx, []byte(yearContent), time.Now(), filepath.Join(ctx.OutputDir, year, "index.html")); err != nil {
-			return err
+			return nil, err
 		}
 
 		for month, days := range months {
@@ -279,11 +373,11 @@ func buildHistory(ctx *PlanContext) error {
 				monthContent += fmt.Sprintf("- [%s](%s)\n", link.DateStr, link.Path)
 			}
 			if err := renderAndWrite(ctx, []byte(monthContent), time.Now(), filepath.Join(ctx.OutputDir, year, month, "index.html")); err != nil {
-				return err
+				return nil, err
 			}
 		}
 	}
-	return nil
+	return rssItems, nil
 }
 
 func renderAndWrite(ctx *PlanContext, content []byte, modTime time.Time, outPath string) error {
@@ -431,7 +525,7 @@ func edit(ctx *PlanContext) {
 		fullCmd := fmt.Sprintf("%s %q", editor, file)
 		cmd = exec.Command("sh", "-c", fullCmd)
 	}
-	
+
 	cmd.Stdin = os.Stdin
 	cmd.Stdout = os.Stdout
 	cmd.Stderr = os.Stderr

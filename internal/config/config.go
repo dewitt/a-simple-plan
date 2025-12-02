@@ -13,6 +13,7 @@ type Config struct {
 	Shell     string `json:"shell"`
 	Timezone  string `json:"timezone"`
 	Title     string `json:"title"`
+	BaseURL   string `json:"base_url"`
 }
 
 // DefaultConfig returns the default configuration based on environment variables
@@ -31,6 +32,7 @@ func DefaultConfig() Config {
 		Shell:     shell,
 		Timezone:  "America/Los_Angeles", // Default fallback
 		Title:     "Plan",
+		BaseURL:   "http://localhost:8081", // Default base URL for local preview
 	}
 }
 
