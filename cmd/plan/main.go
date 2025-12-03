@@ -479,24 +479,8 @@ func build(ctx *PlanContext) {
 	// Prepare RSS items
 	var rssItems []Item
 
-	// Add current post
-	r := render.New(&ctx.Config, ctx.Template, false)
-	bodyBytes, err := r.RenderBody(content)
-	if err == nil {
-		link := ctx.Config.BaseURL + "/"
-		item := Item{
-			Title:       ctx.Config.Title,
-			Link:        link,
-			Description: string(bodyBytes),
-			Content:     string(bodyBytes),
-			PubDate:     info.ModTime().Format(time.RFC1123Z),
-			Guid:        link,
-		}
-		rssItems = append(rssItems, item)
-	} else {
-		log.Printf("Warning: Failed to render current content for RSS: %v", err)
-	}
-
+	// Build history items
+	// The history represents the authoritative list of published posts
 	historyItems, err := buildHistory(ctx)
 	if err != nil {
 		log.Printf("Warning: Failed to build history (is this a git repo?): %v", err)
@@ -561,16 +545,12 @@ func buildHistory(ctx *PlanContext) ([]Item, error) {
 	r := render.New(&ctx.Config, ctx.Template, false)
 
 	for _, dateStr := range dates {
-		hash := history[dateStr]
-		t, err := time.Parse("2006-01-02", dateStr)
-		if err != nil {
-			continue
-		}
-		year := t.Format("2006")
-		month := t.Format("01")
-		day := t.Format("02")
+		info := history[dateStr]
+		year := info.Time.Format("2006")
+		month := info.Time.Format("01")
+		day := info.Time.Format("02")
 
-		content, err := getGitContent(ctx.PlanDir, hash, ctx.PlanFile)
+		content, err := getGitContent(ctx.PlanDir, info.Hash, ctx.PlanFile)
 		if err != nil {
 			log.Printf("Failed to get content for %s: %v", dateStr, err)
 			continue
@@ -579,7 +559,7 @@ func buildHistory(ctx *PlanContext) ([]Item, error) {
 		outDir := filepath.Join(ctx.OutputDir, year, month, day)
 		outPath := filepath.Join(outDir, "index.html")
 
-		if err := renderAndWrite(ctx, content, t, outPath); err != nil {
+		if err := renderAndWrite(ctx, content, info.Time, outPath); err != nil {
 			return nil, err
 		}
 
@@ -596,7 +576,7 @@ func buildHistory(ctx *PlanContext) ([]Item, error) {
 				Link:        link,
 				Description: string(bodyBytes),
 				Content:     string(bodyBytes),
-				PubDate:     t.Format(time.RFC1123Z),
+				PubDate:     info.Time.Format(time.RFC1123Z),
 				Guid:        link,
 			}
 			rssItems = append(rssItems, item)
@@ -673,15 +653,20 @@ func renderAndWrite(ctx *PlanContext, content []byte, modTime time.Time, outPath
 	return nil
 }
 
-func getGitHistory(dir, file string) (map[string]string, error) {
-	cmd := exec.Command("git", "log", "--date=format:%Y-%m-%d", "--format=%H %ad", file)
+type CommitInfo struct {
+	Hash string
+	Time time.Time
+}
+
+func getGitHistory(dir, file string) (map[string]CommitInfo, error) {
+	cmd := exec.Command("git", "log", "--date=iso-strict", "--format=%H %ad", file)
 	cmd.Dir = dir
 	out, err := cmd.Output()
 	if err != nil {
 		return nil, fmt.Errorf("git log failed: %w", err)
 	}
 
-	history := make(map[string]string)
+	history := make(map[string]CommitInfo)
 	lines := strings.Split(string(out), "\n")
 	for _, line := range lines {
 		line = strings.TrimSpace(line)
@@ -693,9 +678,20 @@ func getGitHistory(dir, file string) (map[string]string, error) {
 			continue
 		}
 		hash := parts[0]
-		date := parts[1]
-		if _, exists := history[date]; !exists {
-			history[date] = hash
+		dateStr := parts[1]
+		
+		t, err := time.Parse(time.RFC3339, dateStr)
+		if err != nil {
+			log.Printf("Failed to parse date %s: %v", dateStr, err)
+			continue
+		}
+		
+		dateKey := t.Format("2006-01-02")
+		if _, exists := history[dateKey]; !exists {
+			history[dateKey] = CommitInfo{
+				Hash: hash,
+				Time: t,
+			}
 		}
 	}
 	return history, nil
