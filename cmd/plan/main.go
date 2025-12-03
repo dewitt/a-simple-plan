@@ -1,9 +1,11 @@
 package main
 
 import (
+	"bytes"
 	"encoding/xml"
 	"flag"
 	"fmt"
+	"io"
 	"log"
 	"net/http"
 	"os"
@@ -147,62 +149,56 @@ func main() {
 }
 
 func debugCmd(ctx *PlanContext) {
-	fmt.Println("=== Plan Debug Info ===")
+	writeDebugInfo(os.Stdout, ctx)
+}
+
+func writeDebugInfo(w io.Writer, ctx *PlanContext) {
+	fmt.Fprintln(w, "=== Plan Debug Info ===")
 	
 	// Build Info
-	fmt.Println("\n-- Build Information --")
+	fmt.Fprintln(w, "\n-- Build Information --")
 	if info, ok := debug.ReadBuildInfo(); ok {
-		fmt.Printf("Go Version:   %s\n", info.GoVersion)
+		fmt.Fprintf(w, "Go Version:   %s\n", info.GoVersion)
 		for _, setting := range info.Settings {
 			if setting.Key == "vcs.revision" {
-				fmt.Printf("Git Revision: %s\n", setting.Value)
+				fmt.Fprintf(w, "Git Revision: %s\n", setting.Value)
 			}
 			if setting.Key == "vcs.time" {
-				fmt.Printf("Git Time:     %s\n", setting.Value)
+				fmt.Fprintf(w, "Git Time:     %s\n", setting.Value)
 			}
 			if setting.Key == "vcs.modified" && setting.Value == "true" {
-				fmt.Println("Git Status:   dirty")
+				fmt.Fprintln(w, "Git Status:   dirty")
 			}
 		}
 	} else {
-		fmt.Println("Build info not available.")
+		fmt.Fprintln(w, "Build info not available.")
 	}
-	fmt.Printf("OS/Arch:      %s/%s\n", runtime.GOOS, runtime.GOARCH)
+	fmt.Fprintf(w, "OS/Arch:      %s/%s\n", runtime.GOOS, runtime.GOARCH)
 
 	// Context Info
-	fmt.Println("\n-- Context --")
+	fmt.Fprintln(w, "\n-- Context --")
 	cwd, _ := os.Getwd()
-	fmt.Printf("Working Dir:  %s\n", cwd)
-	fmt.Printf("Plan Dir:     %s\n", ctx.PlanDir)
-	fmt.Printf("Plan File:    %s\n", ctx.PlanFile)
-	fmt.Printf("Output Dir:   %s\n", ctx.OutputDir)
-	fmt.Printf("Creation:     %s\n", ctx.CreationTime.Format(time.RFC3339))
+	fmt.Fprintf(w, "Working Dir:  %s\n", cwd)
+	fmt.Fprintf(w, "Plan Dir:     %s\n", ctx.PlanDir)
+	fmt.Fprintf(w, "Plan File:    %s\n", ctx.PlanFile)
+	fmt.Fprintf(w, "Output Dir:   %s\n", ctx.OutputDir)
+	fmt.Fprintf(w, "Creation:     %s\n", ctx.CreationTime.Format(time.RFC3339))
 
 	// Configuration
-	fmt.Println("\n-- Configuration --")
-	fmt.Printf("Username:     %s\n", ctx.Config.Username)
-	fmt.Printf("FullName:     %s\n", ctx.Config.FullName)
-	fmt.Printf("Title:        %s\n", ctx.Config.Title)
-	fmt.Printf("Timezone:     %s\n", ctx.Config.Timezone)
+	fmt.Fprintln(w, "\n-- Configuration --")
+	fmt.Fprintf(w, "Username:     %s\n", ctx.Config.Username)
+	fmt.Fprintf(w, "FullName:     %s\n", ctx.Config.FullName)
+	fmt.Fprintf(w, "Title:        %s\n", ctx.Config.Title)
+	fmt.Fprintf(w, "Timezone:     %s\n", ctx.Config.Timezone)
 	
 	tmplStatus := "Default (Embedded)"
 	if len(ctx.Template) > 0 {
-		// Simple check to see if it matches default is hard since default is embedded in another package
-		// But if initContext loaded it from disk, we know. 
-		// Actually initContext sets ctx.Template to file content if found, else empty string?
-		// Re-reading initContext: 
-		// tmplContent is set ONLY if os.ReadFile succeeds. 
-		// But render.New defaults if passed empty string.
-		// So if ctx.Template is NOT empty, it was loaded from file.
 		tmplStatus = "Custom (Loaded from file)"
-	} else {
-		// It might still be empty string in ctx, but renderer uses default.
-		tmplStatus = "Default (Embedded)"
 	}
-	fmt.Printf("Template:     %s\n", tmplStatus)
+	fmt.Fprintf(w, "Template:     %s\n", tmplStatus)
 
 	// Git Status of Plan
-	fmt.Println("\n-- Plan Git Status --")
+	fmt.Fprintln(w, "\n-- Plan Git Status --")
 	if _, err := exec.LookPath("git"); err == nil {
 		cmd := exec.Command("git", "status", "-s", ctx.PlanFile)
 		cmd.Dir = ctx.PlanDir
@@ -210,24 +206,24 @@ func debugCmd(ctx *PlanContext) {
 		if err == nil {
 			status := strings.TrimSpace(string(out))
 			if status == "" {
-				fmt.Println("Status:       Clean")
+				fmt.Fprintln(w, "Status:       Clean")
 			} else {
-				fmt.Printf("Status:       %s\n", status)
+				fmt.Fprintf(w, "Status:       %s\n", status)
 			}
 		} else {
-			fmt.Printf("Status:       Error checking git status (%v)\n", err)
+			fmt.Fprintf(w, "Status:       Error checking git status (%v)\n", err)
 		}
 
 		cmdLog := exec.Command("git", "log", "-1", "--format=%h - %s (%an)", ctx.PlanFile)
 		cmdLog.Dir = ctx.PlanDir
 		outLog, errLog := cmdLog.CombinedOutput()
 		if errLog == nil {
-			fmt.Printf("Last Commit:  %s", string(outLog))
+			fmt.Fprintf(w, "Last Commit:  %s", string(outLog))
 		} else {
-			fmt.Println("Last Commit:  (None or not a git repo)")
+			fmt.Fprintln(w, "Last Commit:  (None or not a git repo)")
 		}
 	} else {
-		fmt.Println("Git not found in PATH")
+		fmt.Fprintln(w, "Git not found in PATH")
 	}
 }
 
@@ -537,6 +533,17 @@ func build(ctx *PlanContext) {
 	enc.Indent("", "  ")
 	if err := enc.Encode(rss); err != nil {
 		log.Fatalf("Failed to encode RSS: %v", err)
+	}
+
+	// Generate Debug Page
+	var debugBuf bytes.Buffer
+	writeDebugInfo(&debugBuf, ctx)
+	
+	// Reuse renderer to wrap in template
+	// We wrap the raw text in a <pre> block for the content
+	debugContent := fmt.Sprintf("# Debug Info\n\n```text\n%s\n```", debugBuf.String())
+	if err := renderAndWrite(ctx, []byte(debugContent), time.Now(), filepath.Join(ctx.OutputDir, "debug", "index.html")); err != nil {
+		log.Printf("Warning: Failed to generate debug page: %v", err)
 	}
 
 	fmt.Println("Build complete.")
