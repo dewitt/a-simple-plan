@@ -11,6 +11,7 @@ import (
 	"github.com/dewitt/a-simple-plan/internal/config"
 	"github.com/yuin/goldmark"
 	highlighting "github.com/yuin/goldmark-highlighting/v2"
+	"github.com/yuin/goldmark/renderer/html"
 )
 
 //go:embed template.html
@@ -28,6 +29,9 @@ type Renderer struct {
 func New(cfg *config.Config, customTemplate string) *Renderer {
 	// Initialize markdown renderer once
 	md := goldmark.New(
+		goldmark.WithRendererOptions(
+			html.WithUnsafe(),
+		),
 		goldmark.WithExtensions(
 			highlighting.NewHighlighting(
 				highlighting.WithFormatOptions(

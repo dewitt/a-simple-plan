@@ -28,8 +28,12 @@ type PlanContext struct {
 
 type Rss struct {
 	XMLName xml.Name `xml:"rss"`
-	Version string   `xml:"version,attr"`
-	Channel Channel  `xml:"channel"`
+
+	Version string `xml:"version,attr"`
+
+	ContentNs string `xml:"xmlns:content,attr"`
+
+	Channel Channel `xml:"channel"`
 }
 
 type Channel struct {
@@ -237,7 +241,8 @@ func build(ctx *PlanContext) {
 
 	// Generate RSS Feed
 	rss := Rss{
-		Version: "2.0",
+		Version:   "2.0",
+		ContentNs: "http://purl.org/rss/1.0/modules/content/",
 		Channel: Channel{
 			Title:       ctx.Config.Title,
 			Link:        ctx.Config.BaseURL,
