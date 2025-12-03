@@ -480,7 +480,7 @@ func build(ctx *PlanContext) {
 	var rssItems []Item
 
 	// Add current post
-	r := render.New(&ctx.Config, ctx.Template)
+	r := render.New(&ctx.Config, ctx.Template, false)
 	bodyBytes, err := r.RenderBody(content)
 	if err == nil {
 		link := ctx.Config.BaseURL + "/"
@@ -558,7 +558,7 @@ func buildHistory(ctx *PlanContext) ([]Item, error) {
 	var rssItems []Item
 
 	// Reuse renderer if config doesn't change per file
-	r := render.New(&ctx.Config, ctx.Template)
+	r := render.New(&ctx.Config, ctx.Template, false)
 
 	for _, dateStr := range dates {
 		hash := history[dateStr]
