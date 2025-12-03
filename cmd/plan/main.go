@@ -269,6 +269,9 @@ func initContext(path string) (*PlanContext, error) {
 		tmplContent = string(tmplBytes)
 	}
 
+	// Ensure we have full git history for accurate building
+	ensureFullHistory(planDir)
+
 	// Determine creation time
 	creationTime := getCreationTime(planDir, planFile)
 	if creationTime.IsZero() {
@@ -288,6 +291,29 @@ func initContext(path string) (*PlanContext, error) {
 		Template:     tmplContent,
 		CreationTime: creationTime,
 	}, nil
+}
+
+func ensureFullHistory(dir string) {
+	// Check for shallow clone
+	if _, err := os.Stat(filepath.Join(dir, ".git", "shallow")); err == nil {
+		fmt.Println("Shallow clone detected, fetching full history...")
+		// Try to unshallow
+		cmd := exec.Command("git", "fetch", "--unshallow")
+		cmd.Dir = dir
+		cmd.Stdout = os.Stdout
+		cmd.Stderr = os.Stderr
+		if err := cmd.Run(); err != nil {
+			// If --unshallow fails (e.g. already complete or remote doesn't support), try fetching all
+			fmt.Printf("Warning: 'git fetch --unshallow' failed: %v. Trying standard fetch...\n", err)
+			cmd = exec.Command("git", "fetch", "--all")
+			cmd.Dir = dir
+			cmd.Stdout = os.Stdout
+			cmd.Stderr = os.Stderr
+			cmd.Run()
+		} else {
+			fmt.Println("Full history fetched.")
+		}
+	}
 }
 
 func getCreationTime(dir, file string) time.Time {
