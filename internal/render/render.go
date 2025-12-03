@@ -14,7 +14,6 @@ import (
 	"github.com/yuin/goldmark/parser"
 	"github.com/yuin/goldmark/renderer/html"
 	highlighting "github.com/yuin/goldmark-highlighting/v2"
-	"github.com/yuin/goldmark/renderer/html"
 )
 
 //go:embed template.html
@@ -33,13 +32,11 @@ type Renderer struct {
 func New(cfg *config.Config, customTemplate string, liveReload bool) *Renderer {
 	// Initialize markdown renderer once
 	md := goldmark.New(
-		goldmark.WithRendererOptions(
-			html.WithUnsafe(),
-		),
 		goldmark.WithExtensions(
 			extension.GFM,
 			extension.Footnote,
 			extension.Typographer,
+			extension.Linkify,
 			highlighting.NewHighlighting(
 				highlighting.WithFormatOptions(
 					chromahtml.WithClasses(true),
