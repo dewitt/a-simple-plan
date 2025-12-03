@@ -10,6 +10,9 @@ import (
 	chromahtml "github.com/alecthomas/chroma/v2/formatters/html"
 	"github.com/dewitt/a-simple-plan/internal/config"
 	"github.com/yuin/goldmark"
+	"github.com/yuin/goldmark/extension"
+	"github.com/yuin/goldmark/parser"
+	"github.com/yuin/goldmark/renderer/html"
 	highlighting "github.com/yuin/goldmark-highlighting/v2"
 	"github.com/yuin/goldmark/renderer/html"
 )
@@ -23,21 +26,31 @@ type Renderer struct {
 	loc          *time.Location
 	config       *config.Config
 	templateHTML string
+	liveReload   bool
 }
 
 // New creates a new Renderer.
-func New(cfg *config.Config, customTemplate string) *Renderer {
+func New(cfg *config.Config, customTemplate string, liveReload bool) *Renderer {
 	// Initialize markdown renderer once
 	md := goldmark.New(
 		goldmark.WithRendererOptions(
 			html.WithUnsafe(),
 		),
 		goldmark.WithExtensions(
+			extension.GFM,
+			extension.Footnote,
+			extension.Typographer,
 			highlighting.NewHighlighting(
 				highlighting.WithFormatOptions(
 					chromahtml.WithClasses(true),
 				),
 			),
+		),
+		goldmark.WithParserOptions(
+			parser.WithAutoHeadingID(),
+		),
+		goldmark.WithRendererOptions(
+			html.WithUnsafe(), // Allow raw HTML
 		),
 	)
 
@@ -62,6 +75,7 @@ func New(cfg *config.Config, customTemplate string) *Renderer {
 		loc:          loc,
 		config:       cfg,
 		templateHTML: tmpl,
+		liveReload:   liveReload,
 	}
 }
 
@@ -91,6 +105,30 @@ func (r *Renderer) Compose(bodyHTML []byte, created, updated time.Time) ([]byte,
 		outputStr = strings.ReplaceAll(outputStr, "{{directory}}", r.config.Directory)
 		outputStr = strings.ReplaceAll(outputStr, "{{shell}}", r.config.Shell)
 		outputStr = strings.ReplaceAll(outputStr, "{{title}}", r.config.Title)
+	}
+
+	// Live Reload Injection
+	liveReloadScript := ""
+	if r.liveReload {
+		liveReloadScript = `<script>
+(function() {
+	var es = new EventSource('/events');
+	es.onmessage = function(e) {
+		if (e.data === 'reload') {
+			location.reload();
+		}
+	};
+})();
+</script>`
+	}
+	
+	// If the template has a specific marker, use it (though not standard yet)
+	// Otherwise, inject before </body> which is safer.
+	if strings.Contains(outputStr, "</body>") {
+		outputStr = strings.Replace(outputStr, "</body>", liveReloadScript+"</body>", 1)
+	} else {
+		// Fallback: append
+		outputStr += liveReloadScript
 	}
 
 	// Inject Content

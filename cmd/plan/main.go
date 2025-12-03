@@ -10,9 +10,12 @@ import (
 	"os/exec"
 	"path/filepath"
 	"runtime"
+	"runtime/debug"
 	"sort"
 	"strings"
 	"time"
+
+	"github.com/fsnotify/fsnotify"
 
 	"github.com/dewitt/a-simple-plan/internal/config"
 	"github.com/dewitt/a-simple-plan/internal/render"
@@ -24,6 +27,8 @@ type PlanContext struct {
 	OutputDir string
 	Config    config.Config
 	Template  string // Custom template content
+	CreationTime time.Time
+	LiveReload   bool
 }
 
 type Rss struct {
@@ -68,22 +73,32 @@ func main() {
 		fmt.Fprintf(os.Stderr, "  revert   - Discard local changes\n")
 		fmt.Fprintf(os.Stderr, "  rollback - Revert to previous version and publish\n")
 		fmt.Fprintf(os.Stderr, "  edit     - Open plan file in default editor\n")
+		fmt.Fprintf(os.Stderr, "  debug    - Print debug information\n")
 		fmt.Fprintf(os.Stderr, "\nOptions:\n")
 		flag.PrintDefaults()
 	}
+	
+	// Manually parse args to handle flags before the subcommand
+	// Standard flag.Parse() stops at the first non-flag argument (the subcommand)
+	flag.Parse()
 
-	if len(os.Args) < 2 {
+	if len(flag.Args()) < 1 {
 		flag.Usage()
 		os.Exit(1)
 	}
 
-	cmd := os.Args[1]
+	cmd := flag.Arg(0)
 
-	// Parse flags after command
-	if len(os.Args) > 2 {
-		if err := flag.CommandLine.Parse(os.Args[2:]); err != nil {
-			os.Exit(1)
-		}
+	// Re-parse flags if they were placed after the command (legacy support / user convenience)
+	// This is a bit tricky because flag.Parse() already consumed what it could.
+	// But since we want to support `plan preview -f ...` and `plan -f ... preview`,
+	// we can check if there are args after the command.
+	if len(flag.Args()) > 1 {
+		// Create a new flag set to parse the remaining arguments
+		subFs := flag.NewFlagSet("subcommand", flag.ContinueOnError)
+		subFs.StringVar(&inputPath, "f", inputPath, "Path to the plan file or directory")
+		subFs.StringVar(&inputPath, "file", inputPath, "Path to the plan file or directory")
+		subFs.Parse(flag.Args()[1:])
 	} else if cmd == "-h" || cmd == "--help" {
 		flag.Usage()
 		return
@@ -115,6 +130,8 @@ func main() {
 		rollback(ctx, commit)
 	case "edit":
 		edit(ctx)
+	case "debug":
+		debugCmd(ctx)
 	case "-h", "--help":
 		flag.Usage()
 	default:
@@ -126,6 +143,91 @@ func main() {
 		fmt.Printf("Unknown command: %s\n", cmd)
 		flag.Usage()
 		os.Exit(1)
+	}
+}
+
+func debugCmd(ctx *PlanContext) {
+	fmt.Println("=== Plan Debug Info ===")
+	
+	// Build Info
+	fmt.Println("\n-- Build Information --")
+	if info, ok := debug.ReadBuildInfo(); ok {
+		fmt.Printf("Go Version:   %s\n", info.GoVersion)
+		for _, setting := range info.Settings {
+			if setting.Key == "vcs.revision" {
+				fmt.Printf("Git Revision: %s\n", setting.Value)
+			}
+			if setting.Key == "vcs.time" {
+				fmt.Printf("Git Time:     %s\n", setting.Value)
+			}
+			if setting.Key == "vcs.modified" && setting.Value == "true" {
+				fmt.Println("Git Status:   dirty")
+			}
+		}
+	} else {
+		fmt.Println("Build info not available.")
+	}
+	fmt.Printf("OS/Arch:      %s/%s\n", runtime.GOOS, runtime.GOARCH)
+
+	// Context Info
+	fmt.Println("\n-- Context --")
+	cwd, _ := os.Getwd()
+	fmt.Printf("Working Dir:  %s\n", cwd)
+	fmt.Printf("Plan Dir:     %s\n", ctx.PlanDir)
+	fmt.Printf("Plan File:    %s\n", ctx.PlanFile)
+	fmt.Printf("Output Dir:   %s\n", ctx.OutputDir)
+	fmt.Printf("Creation:     %s\n", ctx.CreationTime.Format(time.RFC3339))
+
+	// Configuration
+	fmt.Println("\n-- Configuration --")
+	fmt.Printf("Username:     %s\n", ctx.Config.Username)
+	fmt.Printf("FullName:     %s\n", ctx.Config.FullName)
+	fmt.Printf("Title:        %s\n", ctx.Config.Title)
+	fmt.Printf("Timezone:     %s\n", ctx.Config.Timezone)
+	
+	tmplStatus := "Default (Embedded)"
+	if len(ctx.Template) > 0 {
+		// Simple check to see if it matches default is hard since default is embedded in another package
+		// But if initContext loaded it from disk, we know. 
+		// Actually initContext sets ctx.Template to file content if found, else empty string?
+		// Re-reading initContext: 
+		// tmplContent is set ONLY if os.ReadFile succeeds. 
+		// But render.New defaults if passed empty string.
+		// So if ctx.Template is NOT empty, it was loaded from file.
+		tmplStatus = "Custom (Loaded from file)"
+	} else {
+		// It might still be empty string in ctx, but renderer uses default.
+		tmplStatus = "Default (Embedded)"
+	}
+	fmt.Printf("Template:     %s\n", tmplStatus)
+
+	// Git Status of Plan
+	fmt.Println("\n-- Plan Git Status --")
+	if _, err := exec.LookPath("git"); err == nil {
+		cmd := exec.Command("git", "status", "-s", ctx.PlanFile)
+		cmd.Dir = ctx.PlanDir
+		out, err := cmd.CombinedOutput()
+		if err == nil {
+			status := strings.TrimSpace(string(out))
+			if status == "" {
+				fmt.Println("Status:       Clean")
+			} else {
+				fmt.Printf("Status:       %s\n", status)
+			}
+		} else {
+			fmt.Printf("Status:       Error checking git status (%v)\n", err)
+		}
+
+		cmdLog := exec.Command("git", "log", "-1", "--format=%h - %s (%an)", ctx.PlanFile)
+		cmdLog.Dir = ctx.PlanDir
+		outLog, errLog := cmdLog.CombinedOutput()
+		if errLog == nil {
+			fmt.Printf("Last Commit:  %s", string(outLog))
+		} else {
+			fmt.Println("Last Commit:  (None or not a git repo)")
+		}
+	} else {
+		fmt.Println("Git not found in PATH")
 	}
 }
 
@@ -167,30 +269,192 @@ func initContext(path string) (*PlanContext, error) {
 		tmplContent = string(tmplBytes)
 	}
 
+	// Determine creation time
+	creationTime := getCreationTime(planDir, planFile)
+	if creationTime.IsZero() {
+		// Fallback to file mod time if git fails or no commits
+		if info, err := os.Stat(filepath.Join(planDir, planFile)); err == nil {
+			creationTime = info.ModTime()
+		} else {
+			creationTime = time.Now()
+		}
+	}
+
 	return &PlanContext{
-		PlanDir:   planDir,
-		PlanFile:  planFile,
-		OutputDir: filepath.Join(planDir, "public"),
-		Config:    cfg,
-		Template:  tmplContent,
+		PlanDir:      planDir,
+		PlanFile:     planFile,
+		OutputDir:    filepath.Join(planDir, "public"),
+		Config:       cfg,
+		Template:     tmplContent,
+		CreationTime: creationTime,
 	}, nil
 }
 
+func getCreationTime(dir, file string) time.Time {
+	cmd := exec.Command("git", "log", "--reverse", "--format=%aI", file)
+	cmd.Dir = dir
+	out, err := cmd.Output()
+	if err != nil {
+		return time.Time{}
+	}
+	lines := strings.Split(string(out), "\n")
+	if len(lines) > 0 {
+		t, err := time.Parse(time.RFC3339, strings.TrimSpace(lines[0]))
+		if err == nil {
+			return t
+		}
+	}
+	return time.Time{}
+}
+
 func preview(ctx *PlanContext) {
+	ctx.LiveReload = true
 	port := "8081"
+	
+	// Initial build
 	build(ctx)
 
+	// Setup SSE
+	reloadCh := make(chan struct{})
+	
+	// Setup File Watcher
+	watcher, err := fsnotify.NewWatcher()
+	if err != nil {
+		log.Fatal(err)
+	}
+	defer watcher.Close()
+
+	go func() {
+		for {
+			select {
+			case event, ok := <-watcher.Events:
+				if !ok {
+					return
+				}
+				// Rebuild on write to plan file or template
+				if event.Op&fsnotify.Write == fsnotify.Write {
+					filename := filepath.Base(event.Name)
+					if filename == ctx.PlanFile || filename == "template.html" || filename == "settings.json" {
+						fmt.Printf("Change detected in %s, rebuilding...\n", filename)
+						// Re-initialize context to catch settings/template changes
+						// But for simplicity, we just rebuild mostly. 
+						// To properly reload settings/template, we'd need to re-run init logic.
+						// For now, let's just re-read the template if it changed? 
+						// Simpler: Just call build. If template changed, we might need to reload it.
+						// Let's do a partial context refresh if needed, but for now just Build.
+						// Actually build() re-reads plan.md, but initContext loaded template. 
+						// So if template.html changes, we need to update ctx.Template.
+						
+						if filename == "template.html" {
+							if tmplBytes, err := os.ReadFile(filepath.Join(ctx.PlanDir, "template.html")); err == nil {
+								ctx.Template = string(tmplBytes)
+							}
+						}
+
+						build(ctx)
+						
+						// Notify clients
+						// Non-blocking send
+						go func() {
+							// Give time for file system to settle / browser to be ready?
+							// Send multiple signals?
+							reloadCh <- struct{}{} 
+						}()
+					}
+				}
+			case err, ok := <-watcher.Errors:
+				if !ok {
+					return
+				}
+				log.Println("error:", err)
+			}
+		}
+	}()
+
+	err = watcher.Add(ctx.PlanDir)
+	if err != nil {
+		log.Fatal(err)
+	}
+
+	mux := http.NewServeMux()
+	
+	// Re-implementing the handler logic properly
+	
+	broker := make(chan chan struct{})
+	remove := make(chan chan struct{})
+	broadcast := make(chan struct{})
+	
+	go func() {
+		active := make(map[chan struct{}]bool)
+		for {
+			select {
+			case c := <-broker:
+				active[c] = true
+			case c := <-remove:
+				delete(active, c)
+			case <-broadcast:
+				for c := range active {
+					select {
+					case c <- struct{}{}:
+					default:
+					}
+				}
+			}
+		}
+	}()
+	
+	// Hook watcher to broadcast
+	go func() {
+		for range reloadCh {
+			broadcast <- struct{}{}
+		}
+	}()
+
+	mux.HandleFunc("/events", func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "text/event-stream")
+		w.Header().Set("Cache-Control", "no-cache")
+		w.Header().Set("Connection", "keep-alive")
+
+		flusher, ok := w.(http.Flusher)
+		if !ok {
+			http.Error(w, "Streaming unsupported!", http.StatusInternalServerError)
+			return
+		}
+
+		ch := make(chan struct{}, 1)
+		broker <- ch
+		defer func() { remove <- ch }()
+
+		// Heartbeat to keep connection alive
+		ticker := time.NewTicker(15 * time.Second)
+		defer ticker.Stop()
+
+		for {
+			select {
+			case <-r.Context().Done():
+				return
+			case <-ch:
+				fmt.Fprintf(w, "data: reload\n\n")
+				flusher.Flush()
+			case <-ticker.C:
+				fmt.Fprintf(w, ": heartbeat\n\n")
+				flusher.Flush()
+			}
+		}
+	})
+
 	fs := http.FileServer(http.Dir(ctx.OutputDir))
-	http.Handle("/", fs)
+	mux.Handle("/", fs)
 
 	fmt.Printf("Starting preview server at http://localhost:%s/index.html\n", port)
+	fmt.Println("Watching for changes...")
 
 	go func() {
 		time.Sleep(500 * time.Millisecond)
 		openBrowser("http://localhost:" + port + "/index.html")
 	}()
 
-	if err := http.ListenAndServe(":"+port, nil); err != nil {
+	if err := http.ListenAndServe(":"+port, mux); err != nil {
 		log.Fatal(err)
 	}
 }
@@ -386,14 +650,14 @@ func buildHistory(ctx *PlanContext) ([]Item, error) {
 }
 
 func renderAndWrite(ctx *PlanContext, content []byte, modTime time.Time, outPath string) error {
-	r := render.New(&ctx.Config, ctx.Template)
+	r := render.New(&ctx.Config, ctx.Template, ctx.LiveReload)
 
 	body, err := r.RenderBody(content)
 	if err != nil {
 		return fmt.Errorf("rendering body: %w", err)
 	}
 
-	html, err := r.Compose(body, modTime, modTime)
+	html, err := r.Compose(body, ctx.CreationTime, modTime)
 	if err != nil {
 		return fmt.Errorf("composing html: %w", err)
 	}
