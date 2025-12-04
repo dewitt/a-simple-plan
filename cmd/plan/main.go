@@ -659,6 +659,42 @@ func buildHistory(ctx *PlanContext) ([]Item, error) {
 			}
 		}
 	}
+
+	// Generate Archives Page
+	var archiveContent bytes.Buffer
+	archiveContent.WriteString("# Archives\n\n")
+
+	// Get years and sort them descending
+	var years []string
+	for y := range tree {
+		years = append(years, y)
+	}
+	sort.Sort(sort.Reverse(sort.StringSlice(years)))
+
+	for _, year := range years {
+		archiveContent.WriteString(fmt.Sprintf("## %s\n\n", year))
+
+		// Collect all days for this year
+		var yearDays []dayEntry
+		for _, days := range tree[year] {
+			yearDays = append(yearDays, days...)
+		}
+
+		// Sort days descending
+		sort.Slice(yearDays, func(i, j int) bool {
+			return yearDays[i].DateStr > yearDays[j].DateStr
+		})
+
+		for _, d := range yearDays {
+			archiveContent.WriteString(fmt.Sprintf("- [%s](%s)\n", d.DateStr, d.Path))
+		}
+		archiveContent.WriteString("\n")
+	}
+
+	if err := renderAndWrite(ctx, archiveContent.Bytes(), time.Now(), filepath.Join(ctx.OutputDir, "archives", "index.html")); err != nil {
+		return nil, err
+	}
+
 	return rssItems, nil
 }
 
