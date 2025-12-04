@@ -546,6 +546,11 @@ func build(ctx *PlanContext) {
 		log.Printf("Warning: Failed to generate debug page: %v", err)
 	}
 
+	// Generate 404 Page
+	if err := renderAndWrite(ctx, []byte("# Not found."), time.Now(), filepath.Join(ctx.OutputDir, "404.html")); err != nil {
+		log.Printf("Warning: Failed to generate 404 page: %v", err)
+	}
+
 	fmt.Println("Build complete.")
 }
 
