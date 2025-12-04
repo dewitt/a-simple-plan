@@ -547,7 +547,7 @@ func build(ctx *PlanContext) {
 	}
 
 	// Generate 404 Page
-	if err := renderAndWrite(ctx, []byte("# Not found."), time.Now(), filepath.Join(ctx.OutputDir, "404.html")); err != nil {
+	if err := renderAndWrite(ctx, []byte("Not found."), time.Now(), filepath.Join(ctx.OutputDir, "404.html")); err != nil {
 		log.Printf("Warning: Failed to generate 404 page: %v", err)
 	}
 
