@@ -12,3 +12,7 @@
 
 # Backups
 *.bak
+
+# Nix / direnv
+.direnv/
+result
