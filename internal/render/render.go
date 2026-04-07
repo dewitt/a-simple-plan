@@ -10,11 +10,42 @@ import (
 	chromahtml "github.com/alecthomas/chroma/v2/formatters/html"
 	"github.com/dewitt/a-simple-plan/internal/config"
 	"github.com/yuin/goldmark"
+	"github.com/yuin/goldmark/ast"
 	"github.com/yuin/goldmark/extension"
 	"github.com/yuin/goldmark/parser"
 	"github.com/yuin/goldmark/renderer/html"
+	"github.com/yuin/goldmark/text"
+	"github.com/yuin/goldmark/util"
 	highlighting "github.com/yuin/goldmark-highlighting/v2"
 )
+
+// assetTransformer rewrites relative asset paths.
+type assetTransformer struct {
+	prefix string
+}
+
+func (t *assetTransformer) Transform(node *ast.Document, reader text.Reader, pc parser.Context) {
+	if t.prefix == "" {
+		return
+	}
+	_ = ast.Walk(node, func(n ast.Node, entering bool) (ast.WalkStatus, error) {
+		if !entering {
+			return ast.WalkContinue, nil
+		}
+
+		switch v := n.(type) {
+		case *ast.Image:
+			if strings.HasPrefix(string(v.Destination), "assets/") {
+				v.Destination = []byte(t.prefix + string(v.Destination))
+			}
+		case *ast.Link:
+			if strings.HasPrefix(string(v.Destination), "assets/") {
+				v.Destination = []byte(t.prefix + string(v.Destination))
+			}
+		}
+		return ast.WalkContinue, nil
+	})
+}
 
 //go:embed template.html
 var defaultTemplateHTML string
@@ -26,10 +57,11 @@ type Renderer struct {
 	config       *config.Config
 	templateHTML string
 	liveReload   bool
+	AssetPrefix  string
 }
 
 // New creates a new Renderer.
-func New(cfg *config.Config, customTemplate string, liveReload bool) *Renderer {
+func New(cfg *config.Config, customTemplate string, liveReload bool, assetPrefix string) *Renderer {
 	// Initialize markdown renderer once
 	md := goldmark.New(
 		goldmark.WithExtensions(
@@ -45,6 +77,9 @@ func New(cfg *config.Config, customTemplate string, liveReload bool) *Renderer {
 		),
 		goldmark.WithParserOptions(
 			parser.WithAutoHeadingID(),
+			parser.WithASTTransformers(
+				util.Prioritized(&assetTransformer{prefix: assetPrefix}, 100),
+			),
 		),
 		goldmark.WithRendererOptions(
 			html.WithUnsafe(), // Allow raw HTML
@@ -73,6 +108,7 @@ func New(cfg *config.Config, customTemplate string, liveReload bool) *Renderer {
 		config:       cfg,
 		templateHTML: tmpl,
 		liveReload:   liveReload,
+		AssetPrefix:  assetPrefix,
 	}
 }
 

@@ -11,7 +11,7 @@ func TestRender(t *testing.T) {
 	input := []byte("# Hello World\nThis is a test.")
 	now := time.Now()
 
-	r := New(nil, "", false) // Use default config and template for testing
+	r := New(nil, "", false, "") // Use default config and template for testing
 	body, err := r.RenderBody(input)
 	if err != nil {
 		t.Fatalf("RenderBody failed: %v", err)
@@ -35,7 +35,7 @@ func TestRender(t *testing.T) {
 
 func TestRender_AutoLink(t *testing.T) {
 	input := []byte("Check out https://example.com for more info.")
-	r := New(nil, "", false)
+	r := New(nil, "", false, "")
 	body, err := r.RenderBody(input)
 	if err != nil {
 		t.Fatalf("RenderBody failed: %v", err)
@@ -44,5 +44,21 @@ func TestRender_AutoLink(t *testing.T) {
 	expected := `<a href="https://example.com">https://example.com</a>`
 	if !strings.Contains(string(body), expected) {
 		t.Errorf("Expected auto-linked URL, got: %s", string(body))
+	}
+}
+
+func TestRender_AssetRewriting(t *testing.T) {
+	input := []byte("![image](assets/foo.png) [link](assets/bar.pdf)")
+	r := New(nil, "", false, "../../../")
+	body, err := r.RenderBody(input)
+	if err != nil {
+		t.Fatalf("RenderBody failed: %v", err)
+	}
+
+	if !strings.Contains(string(body), `src="../../../assets/foo.png"`) {
+		t.Errorf("Asset image path not rewritten correctly: %s", string(body))
+	}
+	if !strings.Contains(string(body), `href="../../../assets/bar.pdf"`) {
+		t.Errorf("Asset link path not rewritten correctly: %s", string(body))
 	}
 }

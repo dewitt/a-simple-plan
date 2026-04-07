@@ -31,6 +31,7 @@ type PlanContext struct {
 	Template  string // Custom template content
 	CreationTime time.Time
 	LiveReload   bool
+	HasAssets    bool
 }
 
 type Rss struct {
@@ -279,6 +280,11 @@ func initContext(path string) (*PlanContext, error) {
 		}
 	}
 
+	hasAssets := false
+	if info, err := os.Stat(filepath.Join(planDir, "assets")); err == nil && info.IsDir() {
+		hasAssets = true
+	}
+
 	return &PlanContext{
 		PlanDir:      planDir,
 		PlanFile:     planFile,
@@ -286,6 +292,7 @@ func initContext(path string) (*PlanContext, error) {
 		Config:       cfg,
 		Template:     tmplContent,
 		CreationTime: creationTime,
+		HasAssets:    hasAssets,
 	}, nil
 }
 
@@ -398,6 +405,13 @@ func preview(ctx *PlanContext) {
 		log.Fatal(err)
 	}
 
+	if ctx.HasAssets {
+		err = watcher.Add(filepath.Join(ctx.PlanDir, "assets"))
+		if err != nil {
+			log.Printf("Warning: Failed to watch assets directory: %v", err)
+		}
+	}
+
 	mux := http.NewServeMux()
 	
 	// Re-implementing the handler logic properly
@@ -494,8 +508,21 @@ func build(ctx *PlanContext) {
 		log.Fatalf("Failed to stat file: %v", err)
 	}
 
-	if err := renderAndWrite(ctx, content, info.ModTime(), filepath.Join(ctx.OutputDir, "index.html")); err != nil {
+	if err := renderAndWrite(ctx, content, info.ModTime(), filepath.Join(ctx.OutputDir, "index.html"), ""); err != nil {
 		log.Fatalf("Failed to build current page: %v", err)
+	}
+
+	// Copy Assets
+	if ctx.HasAssets {
+		src := filepath.Join(ctx.PlanDir, "assets")
+		dst := filepath.Join(ctx.OutputDir, "assets")
+		if err := os.MkdirAll(dst, 0755); err != nil {
+			log.Printf("Warning: Failed to create assets directory: %v", err)
+		} else {
+			if err := os.CopyFS(dst, os.DirFS(src)); err != nil {
+				log.Printf("Warning: Failed to copy assets: %v", err)
+			}
+		}
 	}
 
 	// Prepare RSS items
@@ -542,12 +569,14 @@ func build(ctx *PlanContext) {
 	// Reuse renderer to wrap in template
 	// We wrap the raw text in a <pre> block for the content
 	debugContent := fmt.Sprintf("# Debug Info\n\n```text\n%s\n```", debugBuf.String())
-	if err := renderAndWrite(ctx, []byte(debugContent), time.Now(), filepath.Join(ctx.OutputDir, "debug", "index.html")); err != nil {
+	// Debug page is 1 level deep: /debug/
+	if err := renderAndWrite(ctx, []byte(debugContent), time.Now(), filepath.Join(ctx.OutputDir, "debug", "index.html"), "../"); err != nil {
 		log.Printf("Warning: Failed to generate debug page: %v", err)
 	}
 
 	// Generate 404 Page
-	if err := renderAndWrite(ctx, []byte("Not found."), time.Now(), filepath.Join(ctx.OutputDir, "404.html")); err != nil {
+	// 404.html is at the root
+	if err := renderAndWrite(ctx, []byte("Not found."), time.Now(), filepath.Join(ctx.OutputDir, "404.html"), ""); err != nil {
 		log.Printf("Warning: Failed to generate 404 page: %v", err)
 	}
 
@@ -580,7 +609,9 @@ func buildHistory(ctx *PlanContext) ([]Item, error) {
 	var rssItems []Item
 
 	// Reuse renderer if config doesn't change per file
-	r := render.New(&ctx.Config, ctx.Template, false)
+	// We'll create a new one inside renderAndWrite for each page anyway, 
+	// but for RSS item content we need one here.
+	r := render.New(&ctx.Config, ctx.Template, false, "")
 
 	for _, dateStr := range dates {
 		info := history[dateStr]
@@ -597,7 +628,8 @@ func buildHistory(ctx *PlanContext) ([]Item, error) {
 		outDir := filepath.Join(ctx.OutputDir, year, month, day)
 		outPath := filepath.Join(outDir, "index.html")
 
-		if err := renderAndWrite(ctx, content, info.Time, outPath); err != nil {
+		// History pages are 3 levels deep: /year/month/day/
+		if err := renderAndWrite(ctx, content, info.Time, outPath, "../../../"); err != nil {
 			return nil, err
 		}
 
@@ -643,7 +675,8 @@ func buildHistory(ctx *PlanContext) ([]Item, error) {
 		for _, link := range yearLinks {
 			yearContent += fmt.Sprintf("- [%s](%s)\n", link.DateStr, link.Path)
 		}
-		if err := renderAndWrite(ctx, []byte(yearContent), time.Now(), filepath.Join(ctx.OutputDir, year, "index.html")); err != nil {
+		// Year index is 1 level deep: /year/
+		if err := renderAndWrite(ctx, []byte(yearContent), time.Now(), filepath.Join(ctx.OutputDir, year, "index.html"), "../"); err != nil {
 			return nil, err
 		}
 
@@ -659,7 +692,8 @@ func buildHistory(ctx *PlanContext) ([]Item, error) {
 			for _, link := range days {
 				monthContent += fmt.Sprintf("- [%s](%s)\n", link.DateStr, link.Path)
 			}
-			if err := renderAndWrite(ctx, []byte(monthContent), time.Now(), filepath.Join(ctx.OutputDir, year, month, "index.html")); err != nil {
+			// Month index is 2 levels deep: /year/month/
+			if err := renderAndWrite(ctx, []byte(monthContent), time.Now(), filepath.Join(ctx.OutputDir, year, month, "index.html"), "../../"); err != nil {
 				return nil, err
 			}
 		}
@@ -696,15 +730,16 @@ func buildHistory(ctx *PlanContext) ([]Item, error) {
 		archiveContent.WriteString("\n")
 	}
 
-	if err := renderAndWrite(ctx, archiveContent.Bytes(), time.Now(), filepath.Join(ctx.OutputDir, "archives", "index.html")); err != nil {
+	// Archives page is 1 level deep: /archives/
+	if err := renderAndWrite(ctx, archiveContent.Bytes(), time.Now(), filepath.Join(ctx.OutputDir, "archives", "index.html"), "../"); err != nil {
 		return nil, err
 	}
 
 	return rssItems, nil
 }
 
-func renderAndWrite(ctx *PlanContext, content []byte, modTime time.Time, outPath string) error {
-	r := render.New(&ctx.Config, ctx.Template, ctx.LiveReload)
+func renderAndWrite(ctx *PlanContext, content []byte, modTime time.Time, outPath string, assetPrefix string) error {
+	r := render.New(&ctx.Config, ctx.Template, ctx.LiveReload, assetPrefix)
 
 	body, err := r.RenderBody(content)
 	if err != nil {
