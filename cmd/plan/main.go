@@ -822,8 +822,12 @@ func runCmd(dir, name string, args ...string) error {
 
 func save(ctx *PlanContext) {
 	fmt.Printf("Saving %s...\n", ctx.PlanFile)
-	if err := runCmd(ctx.PlanDir, "git", "add", ctx.PlanFile); err != nil {
-		log.Fatalf("Failed to add file: %v", err)
+	args := []string{"add", ctx.PlanFile}
+	if ctx.HasAssets {
+		args = append(args, "assets")
+	}
+	if err := runCmd(ctx.PlanDir, "git", args...); err != nil {
+		log.Fatalf("Failed to add files: %v", err)
 	}
 	if err := runCmd(ctx.PlanDir, "git", "commit", "-m", "Update plan"); err != nil {
 		fmt.Println("Nothing to commit or commit failed.")
@@ -843,7 +847,11 @@ func publish(ctx *PlanContext) {
 
 func revert(ctx *PlanContext) {
 	fmt.Printf("Reverting %s...\n", ctx.PlanFile)
-	if err := runCmd(ctx.PlanDir, "git", "checkout", ctx.PlanFile); err != nil {
+	args := []string{"checkout", ctx.PlanFile}
+	if ctx.HasAssets {
+		args = append(args, "assets")
+	}
+	if err := runCmd(ctx.PlanDir, "git", args...); err != nil {
 		log.Fatalf("Failed to revert: %v", err)
 	}
 	fmt.Println("Local changes discarded.")
@@ -856,7 +864,11 @@ func rollback(ctx *PlanContext, commit string) {
 	}
 	fmt.Printf("Rolling back %s to version %s...\n", ctx.PlanFile, target)
 	if err := runCmd(ctx.PlanDir, "git", "checkout", target, "--", ctx.PlanFile); err != nil {
-		log.Fatalf("Failed to checkout version %s: %v", target, err)
+		log.Fatalf("Failed to checkout version %s of %s: %v", target, ctx.PlanFile, err)
+	}
+	if ctx.HasAssets {
+		// Attempt to rollback assets, but don't fatal if they didn't exist in that commit
+		_ = runCmd(ctx.PlanDir, "git", "checkout", target, "--", "assets")
 	}
 	fmt.Println("Committing rollback...")
 	if err := runCmd(ctx.PlanDir, "git", "commit", "-m", fmt.Sprintf("Rollback %s to %s", ctx.PlanFile, target)); err != nil {
